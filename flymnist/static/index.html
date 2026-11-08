@@ -1,0 +1,1292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fly Brain</title>
+<style>
+  :root {
+    --bg: #0b0d11; --panel: #13161c; --panel-2: #1a1e26; --line: #262b35;
+    --text: #e6e8ec; --muted: #8b93a1; --accent: #f5c542;
+    --radius: 10px;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.4; }
+  header { padding: 18px 24px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+  h1 { font-size: 20px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  header .sub { color: var(--muted); font-size: 13px; flex: 1 1 320px; }
+  .head-right { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+  main { display: grid; gap: 14px; padding: 10px 24px 28px;
+         grid-template-columns: 300px minmax(0, 1fr) 330px;
+         grid-template-areas: "draw brain pred" "ko time stats"; }
+  @media (max-width: 1150px) {
+    main { grid-template-columns: 300px minmax(0, 1fr); grid-template-areas: "draw pred" "brain brain" "ko time" "stats stats"; }
+  }
+  @media (max-width: 680px) {
+    main { padding: 10px 12px 24px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "draw" "pred" "brain" "ko" "time" "stats"; }
+  }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; min-width: 0; }
+  .panel h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 10px; }
+  button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 7px;
+           padding: 7px 12px; font: inherit; cursor: pointer; }
+  button:hover { border-color: #3a4150; }
+  button.primary { background: var(--accent); color: #17130a; border-color: var(--accent); font-weight: 600; }
+  button.primary:disabled { opacity: 0.55; cursor: progress; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  #draw-area { grid-area: draw; }
+  #pad { width: 100%; max-width: 272px; aspect-ratio: 1; display: block; background: #000; border-radius: 8px;
+         border: 1px solid var(--line); touch-action: none; cursor: crosshair; margin-bottom: 10px; }
+  .seen { display: flex; gap: 12px; align-items: center; margin-top: 14px; color: var(--muted); font-size: 12.5px; }
+  #seen { width: 84px; height: 84px; image-rendering: pixelated; background: #000; border-radius: 6px; border: 1px solid var(--line); flex: none; }
+  #status { margin-top: 12px; color: var(--muted); font-size: 12.5px; min-height: 36px; }
+  .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--muted); border-top-color: transparent;
+          border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -1px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #brain-area { grid-area: brain; display: flex; flex-direction: column; }
+  #map-wrap { position: relative; flex: 1; min-height: 340px; background: #05070a; border-radius: 8px; overflow: hidden; }
+  #map { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; }
+  #map:active { cursor: grabbing; }
+  #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .lbl { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 11.5px; font-weight: 550;
+         color: #f0f2f5; text-shadow: 0 0 3px #000, 0 0 6px #000, 0 0 10px #000; display: flex; align-items: center; gap: 4px; }
+  .lbl::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #fff; box-shadow: 0 0 4px #000; flex: none; }
+  .lbl.side { font-size: 11px; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .lbl.side::before { display: none; }
+  #maphelp { position: absolute; right: 12px; bottom: 10px; font-size: 11.5px; color: #6f7682; pointer-events: none; }
+  #tlabel { position: absolute; left: 12px; top: 10px; font-variant-numeric: tabular-nums; font-size: 13px; color: #cfd3da; pointer-events: none; }
+  #hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; font-size: 13px; }
+  .controls { margin-top: 10px; }
+  #scrub { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+
+  #pred-area { grid-area: pred; }
+  .headline { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+  #big { font-size: 64px; font-weight: 700; line-height: 1; width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+  #big-sub { color: var(--muted); font-size: 12.5px; }
+  #big-sub b { color: var(--text); font-weight: 600; }
+  .ro { padding: 7px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+  .ro:hover { background: var(--panel-2); }
+  .ro.sel { border-color: var(--line); background: var(--panel-2); }
+  .ro .top { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 4px; gap: 8px; }
+  .ro .top span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .cells { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
+  .cells div { height: 20px; border-radius: 3px; font-size: 11px; display: grid; place-items: center;
+               font-variant-numeric: tabular-nums; color: #cfd3da; background: #1c2029; }
+  .cells div.max { outline: 1.5px solid var(--text); outline-offset: -1.5px; color: #fff; font-weight: 700; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+  #time-area { grid-area: time; }
+  #chart { width: 100%; height: 200px; display: block; }
+  #stats-area { grid-area: stats; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  th { text-align: right; color: var(--muted); font-weight: 500; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+  td { text-align: right; padding: 3px 4px; border-bottom: 1px solid #1c2029; white-space: nowrap; }
+  td:first-child { white-space: normal; }
+  td .pct { color: var(--muted); font-size: 11px; }
+  th:first-child, td:first-child { text-align: left; }
+  td i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  h2.second { margin-top: 16px; }
+
+  .tabs { display: flex; gap: 6px; }
+  .tabs button { padding: 6px 12px; }
+  #cam-area { grid-area: draw; }
+  #fly-area { grid-area: pred; }
+  [hidden] { display: none !important; }
+  #cam-wrap { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #000; border-radius: 8px; overflow: hidden;
+              border: 1px solid var(--line); margin-bottom: 10px; display: grid; place-items: center; color: var(--muted); font-size: 12.5px; }
+  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  #countdown { position: absolute; inset: 0; display: grid; place-items: center; font-size: 64px; font-weight: 700;
+               color: #fff; text-shadow: 0 0 12px #000; pointer-events: none; }
+  #rec-badge { position: absolute; left: 8px; top: 8px; background: #ff4d4d; color: #fff; font-size: 11px; font-weight: 700;
+               padding: 2px 7px; border-radius: 4px; letter-spacing: 0.04em; }
+  #cam-seen { width: 96px; height: 72px; image-rendering: pixelated; background: #000; border-radius: 6px;
+              border: 1px solid var(--line); flex: none; transform: scaleX(-1); }
+  .rec { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .rec button { display: flex; justify-content: space-between; align-items: center; gap: 6px; text-align: left; padding: 6px 9px; line-height: 1.25; }
+  .rec button small { color: var(--muted); font-size: 11px; margin-right: 2px; }
+  .rec button b { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
+  .rec button.recording { border-color: #ff4d4d; color: #ff8080; }
+  select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 7px 8px; font: inherit; }
+  .cam-status { margin-top: 10px; color: var(--muted); font-size: 12.5px; min-height: 18px; }
+  #fly-wrap { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #0d0f13; border-radius: 8px; border: 1px solid var(--line); overflow: hidden; }
+  #fly3d { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+  #fly3d:active { cursor: grabbing; }
+  #fly-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12.5px; pointer-events: none; }
+  #fly-help { position: absolute; right: 8px; bottom: 6px; font-size: 11px; color: var(--muted); pointer-events: none; }
+  .meters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 12px 0 6px; }
+  .meter { background: none; border: 1px solid transparent; border-radius: 7px; padding: 4px 6px; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+  .meter:hover { background: var(--panel-2); border-color: var(--line); }
+  .meter.on { border-color: var(--accent); }
+  .meter .bar { display: block; }
+  .meter .lab { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .meter .bar { height: 8px; background: #1c2029; border-radius: 4px; overflow: hidden; }
+  .meter .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.25s; }
+  .probrow { padding: 6px 8px; border-radius: 8px; border: 1px solid transparent; }
+  .probrow.sel { border-color: var(--line); background: var(--panel-2); }
+  .probrow .top { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 4px; gap: 8px; }
+  .probrow .top span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pcells { display: grid; grid-template-columns: repeat(var(--n, 3), 1fr); gap: 3px; }
+  .pcells div { height: 22px; border-radius: 3px; font-size: 11px; display: grid; place-items: center; background: #1c2029; color: #cfd3da; }
+  .pcells div.max { outline: 1.5px solid var(--text); outline-offset: -1.5px; font-weight: 700; }
+
+  #ko-area { grid-area: ko; align-self: start; }
+  #ko-area select, #ko-area input[type=text] { width: 100%; }
+  #ko-area input[type=text] { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 7px 8px; font: inherit; margin-top: 6px; }
+  .ko-hint { color: var(--muted); font-size: 12px; margin: 5px 0 8px; min-height: 16px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 6px 11px; background: var(--panel-2); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: #2a2416; color: var(--accent); }
+  .ko-amount { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 140px; font-size: 12.5px; color: var(--muted); }
+  .ko-amount input { flex: 1; accent-color: #ff6b6b; }
+  .ko-amount b { color: var(--text); font-variant-numeric: tabular-nums; width: 36px; text-align: right; }
+  button.danger { background: #ff6b6b; border-color: #ff6b6b; color: #1a0b0b; font-weight: 600; }
+  #ko-list { display: flex; flex-direction: column; gap: 5px; margin: 12px 0 4px; }
+  .chip { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #241718; border: 1px solid #4a2a2c;
+          border-radius: 7px; padding: 5px 6px 5px 9px; font-size: 12.5px; }
+  .chip span small { color: var(--muted); }
+  .chip button { padding: 1px 7px; font-size: 13px; background: transparent; border-color: transparent; color: var(--muted); }
+  .chip button:hover { color: #ff8080; }
+  .switch { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; margin: 10px 0; cursor: pointer; }
+  .switch input { accent-color: #ff6b6b; margin-top: 2px; }
+  .switch small { color: var(--muted); display: block; }
+  #ko-summary { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+  #ko-summary b { color: #ff8080; font-weight: 600; }
+  #ko-eval-out table { margin-top: 10px; }
+  td.down { color: #ff8080; } td.same { color: var(--muted); }
+  .prog { margin-top: 8px; }
+  .prog .lab { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .prog .lab b { color: var(--text); font-weight: 500; }
+  .prog .lab span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .prog .bar { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+  .prog .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.35s; }
+  #join { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; font-size: 12.5px; }
+  #join[hidden] { display: none; }
+  #join .qr { display: block; width: 30px; height: 30px; background: #fff; border-radius: 4px; padding: 1px; flex: none; }
+  #join .qr svg, #join-big .qr svg { display: block; width: 100%; height: 100%; }
+  #join small { color: var(--muted); display: block; font-size: 10.5px; line-height: 1.1; text-align: left; }
+  #join span { font-variant-numeric: tabular-nums; }
+  #join-big { position: fixed; inset: 0; z-index: 50; background: rgba(5, 6, 9, 0.92); display: grid; place-items: center; cursor: pointer; }
+  #join-big[hidden] { display: none; }
+  #join-big .card { text-align: center; padding: 16px; }
+  #join-big .qr { width: min(70vmin, 520px); aspect-ratio: 1; background: #fff; border-radius: 14px; padding: 10px; margin: 0 auto 18px; }
+  #join-big .url { font-size: clamp(22px, 4.5vmin, 44px); font-weight: 600; font-variant-numeric: tabular-nums; word-break: break-all; }
+  #join-big .note { font-size: 14px; }
+  #brain-load { margin: 0 24px 10px; max-width: 560px; }
+  label.check { display: flex; gap: 7px; align-items: center; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; cursor: pointer; }
+  .teacher { color: var(--accent); font-weight: 600; }
+  #ko-badge { position: absolute; right: 12px; top: 10px; font-size: 12px; color: #ff8080; pointer-events: none; text-align: right; text-shadow: 0 0 4px #000; }
+
+  /* Camera tab: the fly body is the hero (big, centre), camera controls in a narrow left column,
+     brain map + knockouts smaller on the right. Scoped to main.camera so the Draw tab is untouched. */
+  main.camera { grid-template-columns: 280px minmax(0, 1fr) 440px; grid-template-rows: auto 1fr auto;
+                grid-template-areas: "draw pred brain" "draw pred ko" "time time stats"; }
+  main.camera #fly-wrap { aspect-ratio: auto; height: clamp(320px, calc(100vh - 290px), 1600px); }
+  main.camera #brain-area, main.camera #fly-area, main.camera #cam-area { align-self: start; }
+  main.camera #map-wrap { flex: none; min-height: 0; aspect-ratio: 4 / 3; }
+  main.camera #hint { padding: 0 16px; text-align: center; }
+  main.camera #scrub { min-width: 60px; }
+  main.camera .meters { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin-top: 8px; }
+  main.camera #cam-probs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px 10px; }
+  @media (max-width: 1500px) {
+    main.camera { padding: 10px 16px 28px; grid-template-columns: 260px minmax(0, 1fr) 310px; }
+  }
+  @media (max-width: 1150px) {   /* fly full width on top, camera | brain + knockouts below */
+    main.camera { grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: auto auto 1fr auto auto;
+                  grid-template-areas: "pred pred" "draw brain" "draw ko" "time time" "stats stats"; }
+  }
+  @media (max-width: 680px) {    /* phone: one column, fly first */
+    main.camera { padding: 10px 12px 24px; grid-template-columns: minmax(0, 1fr); grid-template-rows: none;
+                  grid-template-areas: "pred" "draw" "brain" "ko" "time" "stats"; }
+    main.camera #fly-wrap { aspect-ratio: 1; height: auto; }
+  }
+  #fly-full { position: absolute; right: 8px; top: 8px; padding: 4px 10px; font-size: 12.5px; background: rgba(19, 22, 28, 0.8); }
+  main #fly-wrap:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; border: 0; border-radius: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fly Brain</h1>
+  <span class="sub" id="sub">Loading the fruit fly connectome…</span>
+  <div class="head-right">
+  <nav class="tabs">
+    <button data-mode="draw" class="on">Draw a digit</button>
+    <button data-mode="camera">Camera → fly body</button>
+    <a href="/static/slides.html" style="align-self:center;color:var(--muted);font-size:13px;padding:0 6px" title="The lecture slides">Slides</a>
+  </nav>
+  <button id="join" hidden title="Show a big QR code so others on this Wi-Fi can open the app">
+    <span class="qr" id="join-qr"></span><span><small>Join on this Wi-Fi</small><span id="join-url"></span></span>
+  </button>
+  </div>
+</header>
+<div id="brain-load" hidden></div>
+<div id="join-big" hidden title="Click or press Esc to close">
+  <div class="card">
+    <div class="qr" id="join-big-qr"></div>
+    <div class="url" id="join-big-url"></div>
+    <div class="note">Scan with your phone camera, or type the address. Same Wi-Fi network only.<br>
+      If the browser warns the connection is not private, choose “Show details” / “Advanced” → visit / proceed.
+      That's expected: the certificate is self-signed.</div>
+  </div>
+</div>
+<main>
+  <section class="panel" id="draw-area">
+    <h2>Draw a digit</h2>
+    <canvas id="pad" width="280" height="280"></canvas>
+    <div class="row">
+      <button class="primary" id="run">Run through brain</button>
+      <button id="clear">Clear</button>
+      <button id="sample" title="Load a random digit from the MNIST test set">MNIST sample</button>
+    </div>
+    <div class="seen"><canvas id="seen" width="28" height="28"></canvas>
+      <span>What the eye gets: your drawing, cropped and centred like MNIST, at 28×28.</span></div>
+    <div id="status"></div>
+  </section>
+
+  <section class="panel" id="cam-area" hidden>
+    <h2>Your camera</h2>
+    <div id="cam-wrap"><span id="cam-off">Camera is off</span><video id="video" autoplay playsinline muted></video>
+      <div id="countdown"></div><div id="rec-badge" hidden>REC</div></div>
+    <div class="row"><button class="primary" id="cam-start">Start camera</button></div>
+    <div class="seen"><canvas id="cam-seen" width="48" height="36"></canvas>
+      <span>What the fly's eyes get: local contrast (edges) at 48×36, the way lamina cells see it.</span></div>
+
+    <h2 class="second">1 · Record your own gesture for each fly action (4 s each)</h2>
+    <div class="rec" id="rec"></div>
+    <div class="note" style="margin-top:6px">Each button is something the fly does. Make up any gesture for it: it only has to look different from your other gestures. Record “rest” plus at least one action.</div>
+    <h2 class="second">2 · Train the motor decoder</h2>
+    <div class="note" id="cam-model" style="margin:0 0 8px"></div>
+    <label class="check" id="cam-include-wrap" hidden><input type="checkbox" id="cam-include" checked> Also learn from the class recordings</label>
+    <div class="row"><button id="cam-train">Train</button><button id="cam-clear">Clear recordings</button></div>
+    <h2 class="second">3 · Go live</h2>
+    <div class="row"><button class="primary" id="cam-live">Start live</button><select id="decoder" title="Which neurons drive the fly's legs"></select></div>
+    <div class="cam-status" id="cam-status"></div>
+  </section>
+
+  <section class="panel" id="brain-area">
+    <h2>Neural activity — 138,639 neurons</h2>
+    <div id="map-wrap"><canvas id="map"></canvas><div id="labels"></div><div id="tlabel"></div><div id="ko-badge"></div>
+      <div id="hint">Draw a digit and press Run</div><div id="maphelp">drag to rotate · scroll to zoom · right-drag to pan</div></div>
+    <div class="row controls">
+      <button id="play">▶ Replay</button>
+      <input type="range" id="scrub" min="0" max="100" step="0.1" value="0">
+      <button id="mode-total" title="Show every neuron that fired, brightness = number of spikes">Total</button>
+    </div>
+    <div class="row controls">
+      <button data-view="front" class="on" title="Facing the fly">Front</button>
+      <button data-view="top" title="From above, front of the head at the top">Top</button>
+      <button data-view="side" title="From the fly's left side">Side</button>
+      <button id="spin" title="Slowly rotate the brain">Spin</button>
+      <button id="toggle-labels" class="on">Labels</button>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="panel" id="pred-area">
+    <h2>Prediction</h2>
+    <div class="headline"><div id="big">–</div><div id="big-sub">Each row is a separate linear readout trained on one brain region. Click a row to make it the headline.</div></div>
+    <div id="readouts"></div>
+    <div class="note">“test acc” = accuracy on held-out MNIST digits. The brain's wiring is fixed; only the readouts were trained. Spikes are random (Poisson input), so runs differ slightly.</div>
+  </section>
+
+  <section class="panel" id="fly-area" hidden>
+    <h2>Fly body — NeuroMechFly</h2>
+    <div id="fly-wrap"><canvas id="fly3d"></canvas><div id="fly-msg">Loading the fly…</div><div id="fly-help">drag to rotate · scroll to zoom</div>
+      <button id="fly-full" title="Show only the fly, full screen (Esc to exit)">⛶ Full screen</button></div>
+    <div class="row controls">
+      <button data-flyview="oblique" class="on">3/4</button>
+      <button data-flyview="front" title="Facing the fly">Front</button>
+      <button data-flyview="side" title="From the fly's left side">Side</button>
+      <button data-flyview="top" title="From above">Top</button>
+      <button id="fly-spin" title="Slowly rotate around the fly">Spin</button>
+    </div>
+    <div class="meters" id="fly-meters" title="Click an action to try it without the camera"></div>
+    <div id="cam-probs"></div>
+    <div class="note">Click an action above to try it without the camera. Live, the fly does the action you recorded your gesture for.
+      Each frame goes through the fly's eyes and 138k-neuron brain (50 ms of brain time, ~1 s to compute).
+      A small decoder trained on your recordings reads the chosen neurons and decides what the fly does.
+      Wing flapping is slowed down ~70× (a real fly beats its wings ~200 times a second), and the antennae move further than a real fly's.
+      “CV” = accuracy on held-out stretches of your recordings.</div>
+  </section>
+
+  <section class="panel" id="ko-area">
+    <h2>Knockouts</h2>
+    <select id="ko-target"></select>
+    <input type="text" id="ko-types" placeholder="Cell types, e.g. LPLC2, Tm*, DN*" hidden>
+    <div class="ko-hint" id="ko-hint"></div>
+    <div class="row">
+      <div class="seg" id="ko-side"><button data-side="both" class="on">Both</button><button data-side="left">Left</button><button data-side="right">Right</button></div>
+      <label class="ko-amount">Amount <input type="range" id="ko-frac" min="10" max="100" step="10" value="100"><b id="ko-frac-v">100%</b></label>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="danger" id="ko-add">Knock out</button></div>
+    <div id="ko-list"></div>
+    <label class="switch"><input type="checkbox" id="ko-cut"><span>Cut left ↔ right connections (split brain)
+      <small id="ko-cut-n">Removes every synapse between a left-side and a right-side neuron.</small></span></label>
+    <div id="ko-summary">Intact brain.</div>
+    <div class="row"><button id="ko-reset">Restore brain</button><button id="ko-eval" title="Run test digits through the current brain and compare readout accuracy with the intact brain">Test on 200 digits</button></div>
+    <div id="ko-eval-out"></div>
+  </section>
+
+  <section class="panel" id="time-area">
+    <h2>Spikes per millisecond, by region (log scale)</h2>
+    <canvas id="chart"></canvas>
+  </section>
+
+  <section class="panel" id="stats-area">
+    <h2>Regions</h2>
+    <table id="regions"></table>
+    <h2 class="second">Most active cell types (excluding eye input)</h2>
+    <table id="types"></table>
+  </section>
+</main>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+const $ = (id) => document.getElementById(id);
+// ?as=student on the teacher's computer: use the app as a student would (own session, own fly).
+const ROLE = new URLSearchParams(location.search).get("as");
+if (ROLE) document.cookie = ROLE === "student" ? "flyrole=student; path=/; max-age=2592000; samesite=lax" : "flyrole=; path=/; max-age=0";
+const SHORT = {
+  "whole brain": "Whole brain",
+  "descending (brain -> body)": "Descending neurons (brain → body)",
+  "central brain": "Central brain",
+  "visual projection (optic lobe -> central brain)": "Visual projection neurons",
+  "optic lobe": "Optic lobe",
+  "eye input (stimulated neurons, noisy pixels)": "Eye input (stimulated)",
+  "pixels": "Raw pixels — no brain (baseline)",
+};
+function decode(b64, T) {
+  const bin = atob(b64), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return new T(u.buffer);
+}
+function hexToRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+
+// ---------------- drawing pad ----------------
+const pad = $("pad"), pctx = pad.getContext("2d");
+function clearPad() { pctx.fillStyle = "#000"; pctx.fillRect(0, 0, 280, 280); }
+clearPad();
+let drawing = false, last = null, dirty = false;
+function padPos(e) { const r = pad.getBoundingClientRect(); return [(e.clientX - r.left) * 280 / r.width, (e.clientY - r.top) * 280 / r.height]; }
+pad.addEventListener("pointerdown", (e) => { drawing = true; last = padPos(e); pad.setPointerCapture(e.pointerId); stroke(last, last); });
+pad.addEventListener("pointermove", (e) => { if (!drawing) return; const p = padPos(e); stroke(last, p); last = p; });
+pad.addEventListener("pointerup", () => { drawing = false; });
+function stroke(a, b) {
+  pctx.strokeStyle = "#fff"; pctx.lineWidth = 20; pctx.lineCap = "round"; pctx.lineJoin = "round";
+  pctx.beginPath(); pctx.moveTo(a[0], a[1]); pctx.lineTo(b[0], b[1]); pctx.stroke(); dirty = true;
+}
+$("clear").onclick = () => { clearPad(); dirty = false; };
+$("sample").onclick = async () => {
+  const s = await (await fetch("/api/sample")).json();
+  const img = pctx.createImageData(28, 28);
+  s.pixels.forEach((v, i) => { const g = Math.round(v * 255); img.data.set([g, g, g, 255], i * 4); });
+  const tmp = document.createElement("canvas"); tmp.width = tmp.height = 28; tmp.getContext("2d").putImageData(img, 0, 0);
+  clearPad(); pctx.imageSmoothingEnabled = true; pctx.drawImage(tmp, 0, 0, 280, 280); dirty = true;
+  setStatus(`Loaded MNIST test digit #${s.index} (true label: <b>${s.label}</b>).`);
+  run();
+};
+document.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
+
+function setStatus(html) { $("status").innerHTML = html; }
+
+// ---------------- brain map (3D) ----------------
+let BRAIN = null, RESULT = null, mode = "replay", t = 0, playing = false;
+const MS = () => (RESULT ? RESULT.duration_ms : BRAIN ? BRAIN.config.duration_ms : 100);
+let appMode = "draw";
+const PLAY_SPEED = () => (appMode === "camera" ? 55 : 25); // ms of brain time per second of replay
+const map = $("map");
+let renderer = null, scene, camera, controls, points, glow, glowAttr, vtx, extent = 800, needsRender = true;
+let deadAttr = null, cutPlane = null, KO_SUMMARY = null;
+let labelEls = [], showLabels = true, center = [0, 0, 0];
+
+// FlyWire micrometres -> scene. Centred; flipped so the fly's back (dorsal) is +Y, the front of
+// the head is +Z and the fly's left is +X, i.e. the "Front" view looks the fly in the face.
+const toScene = (x, y, z) => [-(x - center[0]), -(y - center[1]), -(z - center[2])];
+
+const VERT = `
+  attribute vec3 aColor; attribute float aGlow; attribute float aDead;
+  uniform float uPx, uGlowSize;
+  varying vec3 vColor; varying float vGlow; varying float vDead;
+  void main() {
+    vColor = aColor; vGlow = aGlow; vDead = aDead;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    float size = aGlow > 0.0 ? uGlowSize : 2.4;        // micrometres
+    gl_PointSize = clamp(size * uPx / -mv.z, 1.0, 28.0);
+  }`;
+const FRAG = `
+  uniform float uBase, uGain;
+  varying vec3 vColor; varying float vGlow; varying float vDead;
+  void main() {
+    vec2 d = gl_PointCoord - 0.5; float r2 = dot(d, d);
+    if (r2 > 0.25) discard;
+    float a = vGlow > 0.0 ? uGain * vGlow * (1.0 - 3.0 * r2) : uBase;
+    vec3 c = vGlow > 0.0 ? mix(vColor, vec3(1.0), 0.12 * vGlow) : vColor;
+    if (vDead > 0.5) { c = vec3(0.85, 0.07, 0.12); a = 0.2; }   // knocked-out neuron
+    gl_FragColor = vec4(c * a, 1.0);                    // additive blending
+  }`;
+
+function buildScene() {
+  renderer = new THREE.WebGLRenderer({ canvas: map, antialias: false });
+  renderer.setClearColor(0x05070a, 1);
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(35, 1, 1, 50000);
+  controls = new OrbitControls(camera, map);
+  controls.enableDamping = true; controls.dampingFactor = 0.09; controls.rotateSpeed = 0.7; controls.autoRotateSpeed = 1.2;
+  controls.addEventListener("change", () => (needsRender = true));
+
+  const { n, pos, region, regions } = BRAIN;
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  vtx = new Int32Array(n).fill(-1);
+  let nv = 0;
+  for (let i = 0; i < n; i++) {
+    if (pos[i * 3] < 0) continue;                       // neuron without a position
+    vtx[i] = nv++;
+    for (let k = 0; k < 3; k++) { const v = pos[i * 3 + k] / 10; if (v < lo[k]) lo[k] = v; if (v > hi[k]) hi[k] = v; }
+  }
+  center = lo.map((v, k) => (v + hi[k]) / 2);
+  extent = Math.max(...hi.map((v, k) => v - lo[k]));
+
+  const P = new Float32Array(nv * 3), C = new Float32Array(nv * 3);
+  const rgb = regions.map((r) => hexToRgb(r.color).map((c) => c / 255));
+  for (let i = 0; i < n; i++) {
+    const v = vtx[i]; if (v < 0) continue;
+    P.set(toScene(pos[i * 3] / 10, pos[i * 3 + 1] / 10, pos[i * 3 + 2] / 10), v * 3);
+    C.set(rgb[region[i]], v * 3);
+  }
+  glow = new Float32Array(nv);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(P, 3));
+  g.setAttribute("aColor", new THREE.BufferAttribute(C, 3));
+  glowAttr = new THREE.BufferAttribute(glow, 1).setUsage(THREE.DynamicDrawUsage);
+  g.setAttribute("aGlow", glowAttr);
+  deadAttr = new THREE.BufferAttribute(new Float32Array(nv), 1).setUsage(THREE.DynamicDrawUsage);
+  g.setAttribute("aDead", deadAttr);
+  points = new THREE.Points(g, new THREE.ShaderMaterial({
+    uniforms: { uPx: { value: 1 }, uBase: { value: 0.1 }, uGain: { value: 0.7 }, uGlowSize: { value: 6 } },
+    vertexShader: VERT, fragmentShader: FRAG,
+    transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+  }));
+  scene.add(points);
+  // Midline plane, shown when the hemispheres are disconnected.
+  cutPlane = new THREE.Mesh(new THREE.PlaneGeometry(extent * 0.42, extent * 0.52),
+    new THREE.MeshBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false }));
+  cutPlane.add(new THREE.LineSegments(new THREE.EdgesGeometry(cutPlane.geometry),
+    new THREE.LineBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.8 })));   // visible edge-on too
+  cutPlane.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(
+    [new THREE.Vector3(0, -extent * 0.26, 0), new THREE.Vector3(0, extent * 0.26, 0), new THREE.Vector3(-extent * 0.21, 0, 0), new THREE.Vector3(extent * 0.21, 0, 0)]),
+    new THREE.LineBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.45 })));
+  cutPlane.rotation.y = Math.PI / 2; cutPlane.visible = false; scene.add(cutPlane);
+  showKnockouts();
+  buildLabels();
+  requestAnimationFrame(loop);
+}
+
+function buildLabels() {
+  const box = $("labels"); box.innerHTML = ""; labelEls = [];
+  const add = (text, p, cls) => {
+    const el = document.createElement("div"); el.className = "lbl " + cls; el.textContent = text; box.appendChild(el);
+    labelEls.push({ el, p: new THREE.Vector3(...p) });
+  };
+  for (const a of BRAIN.anchors.filter((a) => a.name === "Lamina")) {   // side markers just outside each eye
+    const p = toScene(...a.pos); p[0] *= 1.18; p[1] += 0.12 * extent;
+    add(a.side === "left" ? "fly's left" : "fly's right", p, "side");
+  }
+  // Earlier in this list wins when two labels would overlap on screen.
+  const priority = ["Medulla", "Central complex", "Mushroom body", "Antennal lobe", "Lobula", "SEZ",
+                    "Lamina", "Lateral horn", "Lobula plate"];
+  const anchors = [...BRAIN.anchors].sort((a, b) => priority.indexOf(a.name) - priority.indexOf(b.name));
+  for (const a of anchors) add(a.name, toScene(...a.pos), "");
+}
+function updateLabels() {
+  const W = map.clientWidth, H = map.clientHeight, v = new THREE.Vector3(), placed = [];
+  for (const L of labelEls) {
+    v.copy(L.p).project(camera);
+    let vis = showLabels && v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05;
+    // "fly's left/right": only for the side facing you, and not when looking at the fly side-on
+    if (vis && L.el.classList.contains("side"))
+      vis = camera.position.distanceTo(L.p) < camera.position.length() + 0.1 * extent
+            && Math.abs(camera.position.x) < 0.7 * camera.position.length();
+    if (vis) {
+      if (!L.w) { L.el.style.display = ""; L.w = L.el.offsetWidth; L.h = L.el.offsetHeight; }
+      const x = ((v.x + 1) / 2) * W - 2.5, y = ((1 - v.y) / 2) * H;
+      const r = [x - 3, y - L.h / 2 - 1, x + L.w + 3, y + L.h / 2 + 1];
+      vis = r[0] >= 0 && r[1] >= 0 && r[2] <= W && r[3] <= H
+            && !placed.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1]);
+      if (vis) { placed.push(r); L.el.style.transform = `translate(${x}px, ${y}px) translateY(-50%)`; }
+    }
+    L.el.style.display = vis ? "" : "none";
+  }
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  if (controls.update()) needsRender = true;
+  if (!needsRender) return;
+  renderer.render(scene, camera); updateLabels(); needsRender = false;
+}
+
+function setView(v) {
+  const aspect = camera.aspect || 1.6, tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const D = (0.56 * extent) / (tanHalf * Math.min(Math.max(aspect, 0.5), 1.9));
+  const dir = { front: [0, 0, 1], top: [0, 1, -0.001], side: [1, 0, 0] }[v];
+  controls.target.set(0, 0, 0);
+  camera.position.set(dir[0] * D, dir[1] * D, dir[2] * D); camera.lookAt(0, 0, 0); controls.update();
+  document.querySelectorAll("[data-view]").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
+  needsRender = true;
+}
+document.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
+$("spin").onclick = () => { controls.autoRotate = !controls.autoRotate; $("spin").classList.toggle("on", controls.autoRotate); };
+$("toggle-labels").onclick = () => { showLabels = !showLabels; $("toggle-labels").classList.toggle("on", showLabels); needsRender = true; };
+
+let viewSet = false, mapFit = 1;
+function layout() {
+  if (BRAIN && !renderer) buildScene();
+  if (renderer) {
+    const r = map.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    renderer.setPixelRatio(dpr); renderer.setSize(r.width, r.height, false);
+    camera.aspect = r.width / Math.max(1, r.height); camera.updateProjectionMatrix();
+    points.material.uniforms.uPx.value = (r.height * dpr) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+    const fit = Math.min(Math.max(camera.aspect, 0.5), 1.9);   // as in setView
+    if (!viewSet) { setView("front"); viewSet = true; }
+    else if (fit !== mapFit) {   // the map changed shape (e.g. narrow column in the camera tab): keep the brain in view
+      camera.position.sub(controls.target).multiplyScalar(mapFit / fit).add(controls.target); controls.update();
+    }
+    mapFit = fit;
+    needsRender = true;
+  }
+  drawChart();
+}
+
+// Light up neurons: replay = spikes in the last few ms fade out; total = every neuron that fired.
+function drawMap() {
+  if (!renderer) return;
+  glow.fill(0);
+  const u = points.material.uniforms;   // "total" lights up many more neurons at once, so keep it dimmer
+  u.uGain.value = mode === "total" ? 0.42 : 0.7; u.uGlowSize.value = mode === "total" ? 4.5 : 6;
+  if (RESULT && mode === "total") {
+    const { neurons, counts } = RESULT.active; let mx = 1;
+    for (const c of counts) mx = Math.max(mx, c);
+    for (let j = 0; j < neurons.length; j++) { const v = vtx[neurons[j]]; if (v >= 0) glow[v] = 0.3 + 0.7 * Math.log1p(counts[j]) / Math.log1p(mx); }
+    $("tlabel").textContent = `all spikes, 0–${MS()} ms`;
+  } else if (RESULT) {
+    const { neurons, offsets } = RESULT.frames, trail = 4, now = Math.floor(t);
+    for (let f = Math.max(0, now - trail); f <= Math.min(now, offsets.length - 2); f++) {
+      const a = 1 - (t - f) / (trail + 1);
+      for (let j = offsets[f]; j < offsets[f + 1]; j++) { const v = vtx[neurons[j]]; if (v >= 0 && a > glow[v]) glow[v] = a; }
+    }
+    $("tlabel").textContent = `t = ${t.toFixed(1)} ms`;
+  }
+  glowAttr.needsUpdate = true; needsRender = true;
+}
+let lastFrame = 0;
+function tick(ts) {
+  if (!playing) return;
+  const dtReal = lastFrame ? (ts - lastFrame) / 1000 : 0; lastFrame = ts;
+  t += dtReal * PLAY_SPEED();
+  if (t >= MS() - 0.001) { t = MS() - 0.001; playing = false; $("play").textContent = "▶ Replay"; }
+  $("scrub").value = t; drawMap(); drawChart();
+  if (playing) requestAnimationFrame(tick);
+}
+function play() {
+  if (!RESULT) return;
+  setMode("replay"); if (t >= MS() - 0.01) t = 0;
+  playing = true; lastFrame = 0; $("play").textContent = "❚❚ Pause"; requestAnimationFrame(tick);
+}
+$("play").onclick = () => { if (playing) { playing = false; $("play").textContent = "▶ Replay"; } else play(); };
+$("scrub").oninput = (e) => { playing = false; $("play").textContent = "▶ Replay"; setMode("replay"); t = +e.target.value; drawMap(); drawChart(); };
+function setMode(m) { mode = m; $("mode-total").classList.toggle("on", m === "total"); }
+$("mode-total").onclick = () => { playing = false; $("play").textContent = "▶ Replay"; setMode(mode === "total" ? "replay" : "total"); drawMap(); drawChart(); };
+
+// ---------------- timeline chart ----------------
+const chart = $("chart"), cctx = chart.getContext("2d");
+function drawChart() {
+  const dpr = window.devicePixelRatio || 1, r = chart.getBoundingClientRect();
+  chart.width = Math.round(r.width * dpr); chart.height = Math.round(r.height * dpr);
+  const W = chart.width, H = chart.height, L = 44 * dpr, B = 22 * dpr, T = 8 * dpr, R = 26 * dpr;
+  cctx.clearRect(0, 0, W, H);
+  cctx.font = `${11 * dpr}px system-ui, sans-serif`; cctx.fillStyle = "#8b93a1"; cctx.strokeStyle = "#262b35"; cctx.lineWidth = dpr;
+  if (!RESULT) { cctx.fillText("No run yet", L, H / 2); return; }
+  const series = RESULT.timeline, n = series[0].length;
+  let mx = 1; series.forEach((s) => s.forEach((v) => { if (v > mx) mx = v; }));
+  const ly = (v) => H - B - (Math.log10(1 + v) / Math.log10(1 + mx)) * (H - B - T);
+  const lx = (i) => L + (i / (n - 1)) * (W - L - R);
+  for (let p = 0; Math.pow(10, p) <= mx; p++) {
+    const v = Math.pow(10, p), yy = ly(v); cctx.beginPath(); cctx.moveTo(L, yy); cctx.lineTo(W - R, yy); cctx.stroke();
+    cctx.textAlign = "right"; cctx.fillText(v >= 1000 ? v / 1000 + "k" : v, L - 6 * dpr, yy + 4 * dpr);
+  }
+  cctx.textAlign = "center";
+  for (let ms = 0; ms <= n; ms += 20) cctx.fillText(ms + " ms", lx(Math.min(ms, n - 1)), H - 6 * dpr);
+  series.forEach((s, k) => {
+    cctx.strokeStyle = BRAIN.regions[k].color; cctx.lineWidth = 1.6 * dpr; cctx.beginPath();
+    s.forEach((v, i) => (i ? cctx.lineTo(lx(i), ly(v)) : cctx.moveTo(lx(i), ly(v)))); cctx.stroke();
+  });
+  if (mode === "replay") {
+    cctx.strokeStyle = "#e6e8ec"; cctx.lineWidth = dpr; const x = lx(Math.min(t, n - 1));
+    cctx.beginPath(); cctx.moveTo(x, T); cctx.lineTo(x, H - B); cctx.stroke();
+  }
+}
+
+// ---------------- predictions & stats ----------------
+let selected = "whole brain";
+function renderPredictions() {
+  const box = $("readouts"); box.innerHTML = "";
+  BRAIN.readouts.forEach((ro) => {
+    const p = RESULT && RESULT.predictions ? RESULT.predictions.find((q) => q.key === ro.key).proba : null;
+    const best = p ? p.indexOf(Math.max(...p)) : -1;
+    const el = document.createElement("div"); el.className = "ro" + (ro.key === selected ? " sel" : "");
+    el.innerHTML = `<div class="top"><span>${SHORT[ro.key] || ro.name}</span><span>test acc ${(ro.accuracy * 100).toFixed(1)}%</span></div>
+      <div class="cells">${[...Array(10).keys()].map((d) => {
+        const v = p ? p[d] : 0;
+        return `<div class="${d === best ? "max" : ""}" style="background:${p ? `rgba(245,197,66,${0.08 + 0.92 * v})` : ""};${v > 0.55 ? "color:#17130a" : ""}" title="${p ? (v * 100).toFixed(1) + "%" : ""}">${d}</div>`;
+      }).join("")}</div>`;
+    el.onclick = () => { selected = ro.key; renderPredictions(); };
+    box.appendChild(el);
+  });
+  const sel = RESULT && RESULT.predictions && RESULT.predictions.find((q) => q.key === selected);
+  if (sel) {
+    const p = sel.proba, d = p.indexOf(Math.max(...p));
+    $("big").textContent = d;
+    $("big-sub").innerHTML = `<b>${(p[d] * 100).toFixed(0)}% confident</b><br>readout: ${SHORT[selected]}`;
+  }
+}
+function renderStats() {
+  const fmt = (v) => v.toLocaleString();
+  $("regions").innerHTML = `<tr><th>region</th><th>neurons</th><th>active</th><th>spikes</th></tr>` +
+    RESULT.summary.map((s, k) => `<tr><td><i style="background:${BRAIN.regions[k].color}"></i>${s.name}</td><td>${fmt(s.neurons)}</td><td>${fmt(s.active)} <span class="pct">${(100 * s.active / s.neurons).toFixed(1)}%</span></td><td>${fmt(s.spikes)}</td></tr>`).join("");
+  const color = Object.fromEntries(BRAIN.regions.map((r) => [r.name, r.color]));
+  $("types").innerHTML = `<tr><th>cell type</th><th>neurons</th><th>spikes</th></tr>` +
+    RESULT.top_types.map((c) => `<tr><td><i style="background:${color[c.region]}"></i>${c.type}</td><td>${fmt(c.neurons)}</td><td>${fmt(c.spikes)}</td></tr>`).join("");
+}
+function renderSeen(canvasId, px, shape = [28, 28]) {
+  const cv = $(canvasId), [h, w] = shape;
+  cv.width = w; cv.height = h;
+  const c = cv.getContext("2d"), img = c.createImageData(w, h);
+  px.forEach((v, i) => { const g = Math.round(v * 255); img.data.set([g, g, g, 255], i * 4); });
+  c.putImageData(img, 0, 0);
+}
+// Decode a brain response and start its replay in the 3D map (used by both modes).
+function showResult(r) {
+  const dec = (v, T) => (typeof v === "string" ? decode(v, T) : v);
+  r.frames.neurons = dec(r.frames.neurons, Int32Array);
+  r.active.neurons = dec(r.active.neurons, Int32Array);
+  r.active.counts = dec(r.active.counts, Uint8Array);
+  RESULT = r; $("hint").style.display = "none";
+  $("scrub").max = r.duration_ms;
+  renderStats(); t = 0; play();
+}
+async function api(path, body) {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
+  return res.json();
+}
+
+const fmtSecs = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s` : `${Math.round(s)}s`);
+function progressHTML(stage, done, total, eta = null, step = "") {
+  const left = eta != null ? ` · ~${fmtSecs(eta)} left` : "";
+  return `<div class="prog"><div class="lab"><span>${step}<b>${stage}</b></span>
+    <span>${done} / ${total}${left}</span></div><div class="bar"><i style="width:${(100 * done / total).toFixed(1)}%"></i></div></div>`;
+}
+// Progress of a loop running here: call with (i + 1) after each item.
+function localProgress(el, stage, done, total, t0) {
+  const el2 = (performance.now() - t0) / 1000;
+  el.innerHTML = progressHTML(stage, done, total, done ? (el2 / done) * (total - done) : null);
+}
+
+// Show the server's progress for a long job in `el` until `promise` settles.
+async function withProgress(el, promise) {
+  const tick = async () => {
+    try {
+      const p = await (await fetch("/api/progress")).json();
+      if (!p.active) return;
+      el.innerHTML = progressHTML(p.stage, p.done, p.total, p.eta, p.steps > 1 ? `Step ${p.step} of ${p.steps}: ` : "");
+    } catch { /* keep the last state */ }
+  };
+  const timer = setInterval(tick, 500); tick();
+  try { return await promise; } finally { clearInterval(timer); }
+}
+
+// ---------------- this device's own brain (runs in a Web Worker) ----------------
+const BR = { worker: null, ready: null, pending: new Map(), next: 1, info: null };
+function b64(typed) {
+  const u = new Uint8Array(typed.buffer, typed.byteOffset, typed.byteLength);
+  let s = "";
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function brainLoading(p) {
+  const el = $("brain-load");
+  if (!p) { el.hidden = true; return; }
+  el.hidden = false;
+  if (p.error) { el.innerHTML = `<span style="color:#ff6b6b">This device could not run the fly brain: ${p.error}</span>`; return; }
+  const mb = (x) => (x / 1e6).toFixed(0);
+  const what = p.cached ? "Loading the fly brain stored on this device" : "Downloading the fly brain to this device (once)";
+  el.innerHTML = progressHTML(p.loaded >= p.total ? "Unpacking the fly brain…" : what, mb(p.loaded), `${mb(p.total)} MB`);
+  el.querySelector("i").style.width = `${(100 * p.loaded / p.total).toFixed(1)}%`;
+}
+function brainInit(b) {
+  BR.worker = new Worker("/static/brain-worker.js", { type: "module" });
+  BR.ready = new Promise((resolve, reject) => {
+    BR.worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === "progress") brainLoading(m);
+      else if (m.type === "ready") { BR.info = m; brainLoading(null); resolve(m); }
+      else {
+        const pending = BR.pending.get(m.id);
+        if (!pending) { if (m.type === "error") reject(new Error(m.message)); return; }
+        BR.pending.delete(m.id);
+        if (m.type === "error") pending.reject(new Error(m.message)); else pending.resolve(m);
+      }
+    };
+    BR.worker.onerror = (e) => reject(new Error(e.message || "the brain could not start"));
+  });
+  BR.ready.catch((e) => brainLoading({ error: e.message }));
+  BR.worker.postMessage({ type: "load", url: b.model.url, gzBytes: b.model.bytes, rawBytes: b.model.raw_bytes,
+                          regionNames: b.regions.map((r) => r.name) });
+}
+async function brainCall(msg, transfer = []) {
+  await BR.ready;
+  const id = BR.next++;
+  return new Promise((resolve, reject) => { BR.pending.set(id, { resolve, reject }); BR.worker.postMessage({ ...msg, id }, transfer); });
+}
+// One image through this device's brain. Returns {counts, seconds, payload (with describe), sparse (with sparse)}.
+async function brainRun(image, H, W, ms, { describe = false, sparse = false } = {}) {
+  const img = Float32Array.from(image);
+  return brainCall({ type: "run", image: img, H, W, rateHz: BRAIN.config.rate_hz, ms, describe, sparse }, [img.buffer]);
+}
+
+// A trained readout/decoder as plain weights: p = softmax(W · standardize(features) + b).
+function prepDecoder(d) {
+  return { cols: d.cols ? decode(d.cols, Int32Array) : null, F: d.n_features, mean: decode(d.mean, Float32Array),
+           scale: decode(d.scale, Float32Array), coef: decode(d.coef, Float32Array), intercept: d.intercept, classes: d.classes };
+}
+function decoderProba(d, counts, image, nClasses) {
+  const F = d.F, z = new Float64Array(F);
+  for (let f = 0; f < F; f++) z[f] = ((d.cols ? Math.log1p(counts[d.cols[f]]) : image[f]) - d.mean[f]) / d.scale[f];
+  const K = d.coef.length / F, logit = new Float64Array(K);
+  for (let k = 0; k < K; k++) {
+    let s = d.intercept[k];
+    for (let f = 0, o = k * F; f < F; f++) s += d.coef[o + f] * z[f];
+    logit[k] = s;
+  }
+  const p = new Array(nClasses).fill(0);
+  if (K === 1) { const p1 = 1 / (1 + Math.exp(-logit[0])); p[d.classes[0]] = 1 - p1; p[d.classes[1]] = p1; return p; }
+  const mx = Math.max(...logit);
+  let sum = 0;
+  const ex = Array.from(logit, (v) => { const e = Math.exp(v - mx); sum += e; return e; });
+  d.classes.forEach((c, k) => (p[c] = ex[k] / sum));
+  return p;
+}
+let READOUTS = null;  // MNIST readouts, applied to this device's spikes
+async function loadReadouts() {
+  const r = await (await fetch("/api/readouts")).json();
+  READOUTS = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, prepDecoder(v)]));
+}
+
+// ---------------- run ----------------
+let busy = false;
+async function run() {
+  if (busy || !BRAIN) return;
+  busy = true; $("run").disabled = true; playing = false;
+  try {
+    const d = await api("/api/digit", { image: pad.toDataURL("image/png") });
+    if (!BR.info) setStatus(`<span class="spin"></span>Waiting for the fly brain to finish loading on this device…`);
+    await BR.ready;
+    if (!READOUTS) await loadReadouts();
+    setStatus(`<span class="spin"></span>Simulating ${MS()} ms of activity in ${BRAIN.n.toLocaleString()} neurons on this device…`);
+    const r = await brainRun(d.image, 28, 28, MS(), { describe: true });
+    const out = Object.assign(r.payload, { image: d.image, image_shape: d.image_shape });
+    out.predictions = Object.entries(READOUTS).map(([key, dec]) => ({ key, proba: decoderProba(dec, r.counts, d.image, 10) }));
+    const spikes = out.summary.reduce((a, s) => a + s.spikes, 0);
+    setStatus(`Done in ${r.seconds.toFixed(1)} s on this device · ${spikes.toLocaleString()} spikes in ${out.summary.reduce((a, s) => a + s.active, 0).toLocaleString()} neurons.`);
+    renderSeen("seen", out.image, out.image_shape); showResult(out); renderPredictions();
+  } catch (e) {
+    setStatus(`<span style="color:#ff6b6b">${e.message}</span>`);
+  } finally { busy = false; $("run").disabled = false; }
+}
+$("run").onclick = run;
+
+// ---------------- camera -> brain -> fly body ----------------
+const CAM_NAMES = { "descending": "Descending neurons (brain → body)", "central brain": "Central brain",
+                    "whole brain": "Whole brain", "pixels": "Contrast pixels — no brain (baseline)" };
+const ACT_SHORT = ["rest", "R front leg", "L front leg", "both front", "wings out", "flap", "middle legs", "hind legs",
+                   "antennae up", "wiggle"];
+const video = $("video"), grab = document.createElement("canvas");
+grab.width = 160; grab.height = 120;
+let camOn = false, live = false, camBusy = false, cam = null, DEC = null;
+const camMsg = (html) => ($("cam-status").innerHTML = html);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function setAppMode(m) {
+  appMode = m;
+  document.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
+  $("draw-area").hidden = m !== "draw"; $("pred-area").hidden = m !== "draw";
+  $("cam-area").hidden = m !== "camera"; $("fly-area").hidden = m !== "camera";
+  document.querySelector("main").classList.toggle("camera", m === "camera");   // fly-first layout
+  // Only stream the fly body while it is on screen (the physics runs only for viewers).
+  if (m === "camera") { flyShow(true); refreshCam(); }
+  else { flyShow(false); stopLive(); }
+  $("hint").textContent = m === "camera" ? "Start the camera, record poses, train, then go live" : "Draw a digit and press Run";
+}
+document.querySelectorAll("[data-mode]").forEach((b) => (b.onclick = () => setAppMode(b.dataset.mode)));
+
+async function startCamera() {
+  if (!window.isSecureContext || !navigator.mediaDevices) {
+    const https = NET && NET.https_url;
+    camMsg(`<span style="color:#ff6b6b">Browsers only allow the camera on https:// pages or on the computer running the server.</span> ` +
+      (https ? `Open <a href="${https}" style="color:var(--accent)">${https.replace("https://", "")}</a> instead (accept the certificate warning once).` : "On this device, use the Draw tab."));
+    return;
+  }
+  try {
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+    camOn = true; $("cam-off").hidden = true; $("cam-start").textContent = "Camera on"; $("cam-start").disabled = true;
+  } catch (e) { camMsg(`<span style="color:#ff6b6b">Camera not available: ${e.message}</span>`); }
+}
+$("cam-start").onclick = startCamera;
+function frameURL() { grab.getContext("2d").drawImage(video, 0, 0, 160, 120); return grab.toDataURL("image/jpeg", 0.85); }
+
+function renderCamStatus(s) {
+  cam = s;
+  if (!$("rec").children.length) {
+    $("rec").innerHTML = s.classes.map((c, i) => `<button data-rec="${i}" title="Record 4 s of your own gesture for this fly action"><span><small>Fly:</small> ${c}</span><b title="frames recorded">0</b></button>`).join("");
+    document.querySelectorAll("[data-rec]").forEach((b) => (b.onclick = () => record(+b.dataset.rec)));
+  }
+  document.querySelectorAll("[data-rec]").forEach((b) => (b.querySelector("b").textContent = s.counts[+b.dataset.rec]));
+  const sel = $("decoder"), keep = sel.value || "descending";
+  sel.innerHTML = Object.entries(CAM_NAMES).map(([k, nm]) => {
+    const m = s.metrics[k]; const acc = m && m.cv_accuracy != null ? ` · CV ${(m.cv_accuracy * 100).toFixed(0)}%` : "";
+    return `<option value="${k}">${nm.split(" (")[0].split(" —")[0]}${acc}</option>`;
+  }).join("");
+  sel.value = keep;
+  $("cam-live").disabled = !s.trained;
+  const sum = (a) => a.reduce((x, y) => x + y, 0), own = sum(s.counts), cls = sum(s.class_counts);
+  let model;
+  if (s.teacher) model = `<span class="teacher">You are the teacher.</span> Your recordings (${cls}) make up the <b>class model</b> every student starts from.` +
+    (s.users ? ` ${s.users} student${s.users > 1 ? "s" : ""} active.` : "") +
+    ` <a href="?as=student" style="color:var(--muted)">See it as a student</a>`;
+  else if (s.using === "own") model = `Using <b>your model</b>: ${own} of your recordings${s.include_class ? ` + ${cls} from the class` : ""}.` +
+    (s.class_updated ? ` <span class="teacher">The class model has changed since: press Train to include it.</span>` : "");
+  else model = (s.trained ? `Using the <b>class model</b> (${cls} recordings by the teacher). Record your own gestures and press Train to make it yours.`
+                         : `No model yet: the teacher hasn't trained the class model. Record gestures and press Train.`);
+  if (!s.teacher && ROLE === "student") model = `<a href="?as=teacher" style="color:var(--muted)">Back to teacher mode</a> · ` + model;
+  if (s.class_preparing) model += ` <span class="spin"></span>Preparing the class model…`;
+  $("cam-model").innerHTML = model;
+  $("cam-include-wrap").hidden = s.teacher;
+  $("cam-include").checked = s.include_class;
+  if (!DEC || DEC.version !== s.decoders_version) loadDecoders().catch(() => {});
+}
+async function loadDecoders() {
+  const d = await (await fetch("/api/cam/decoders")).json();
+  DEC = { version: d.version, source: d.source,
+          decoders: Object.fromEntries(Object.entries(d.decoders).map(([k, v]) => [k, prepDecoder(v)])) };
+}
+async function refreshCam() { renderCamStatus(await (await fetch("/api/cam/status")).json()); }
+
+async function record(label) {
+  if (!camOn) await startCamera();
+  if (!camOn || camBusy) return;
+  camBusy = true; stopLive();
+  const btn = document.querySelector(`[data-rec="${label}"]`);
+  try {
+    for (const n of [3, 2, 1]) { $("countdown").textContent = n; await sleep(700); }
+    $("countdown").textContent = ""; $("rec-badge").hidden = false; btn.classList.add("recording");
+    const t0 = performance.now(), frames = [];
+    while (performance.now() - t0 < 4000) {
+      const f = await api("/api/cam/frame", { image: frameURL() });
+      renderSeen("cam-seen", f.image, f.image_shape); frames.push(f);
+      await sleep(100);
+    }
+    $("rec-badge").hidden = true; btn.classList.remove("recording");
+    // Show every frame to this device's brain; send the frames and the spikes to the server for training.
+    await BR.ready;
+    const counts = [], t1 = performance.now();
+    for (let i = 0; i < frames.length; i++) {
+      const r = await brainRun(frames[i].image, frames[i].image_shape[0], frames[i].image_shape[1], cam.duration_ms, { sparse: true });
+      counts.push({ idx: b64(r.sparse.idx), val: b64(r.sparse.val) });
+      localProgress($("cam-status"), "Showing your frames to the fly brain on this device", i + 1, frames.length, t1);
+    }
+    const s = await api("/api/cam/samples", { label, counts,
+      images: frames.map((f) => b64(Uint8Array.from(f.image, (v) => Math.round(v * 255)))) });
+    renderCamStatus(s);
+    camMsg(`Recorded ${frames.length} frames for “${cam.classes[label]}”. Vary your position a little between recordings, then press Train.`);
+  } catch (e) { camMsg(`<span style="color:#ff6b6b">${e.message}</span>`); }
+  finally { $("countdown").textContent = ""; $("rec-badge").hidden = true; btn.classList.remove("recording"); camBusy = false; }
+}
+$("cam-train").onclick = async () => {
+  if (camBusy) return;
+  camBusy = true; stopLive(); $("cam-train").disabled = true;
+  const n = cam ? cam.counts.reduce((a, b) => a + b, 0) : 0;
+  camMsg(`<span class="spin"></span>Showing ${n} frames to the fly brain and training decoders…`);
+  try {
+    const r = await withProgress($("cam-status"), api("/api/cam/train", { include_class: $("cam-include").checked }));
+    renderCamStatus(r); await loadDecoders();
+    const m = r.metrics, pct = (k) => (m[k] && m[k].cv_accuracy != null ? (m[k].cv_accuracy * 100).toFixed(0) + "%" : "–");
+    camMsg(`Trained on ${r.frames} recordings in ${r.train_seconds}s. Cross-validated accuracy: descending ${pct("descending")} (${m.descending ? m.descending.neurons : 0} active neurons), whole brain ${pct("whole brain")}, pixels ${pct("pixels")}. Press <b>Start live</b>.`);
+  } catch (e) { camMsg(`<span style="color:#ff6b6b">${e.message}</span>`); }
+  finally { camBusy = false; $("cam-train").disabled = false; }
+};
+$("cam-clear").onclick = async () => {
+  const q = cam && cam.teacher ? "Delete the CLASS recordings and the class model? Students who haven't trained their own model lose it too."
+                                : "Delete your recordings and your model? You'll go back to the class model.";
+  if (!confirm(q)) return;
+  stopLive(); renderCamStatus(await api("/api/cam/clear")); renderCamProbs(null); camMsg("Recordings cleared.");
+};
+
+function renderCamProbs(r) {
+  const box = $("cam-probs");
+  if (!r) { box.innerHTML = ""; return; }
+  const known = DEC && (DEC.decoders[r.decoder] || DEC.decoders["whole brain"]);
+  const shown = known ? known.classes : [];  // only actions the decoder was trained on
+  box.innerHTML = Object.entries(r.probs).map(([k, p]) => {
+    const best = p.indexOf(Math.max(...p)), m = cam && cam.metrics[k];
+    return `<div class="probrow ${k === r.decoder ? "sel" : ""}"><div class="top"><span>${CAM_NAMES[k]}</span><span>${m && m.cv_accuracy != null ? "CV " + (m.cv_accuracy * 100).toFixed(0) + "%" : ""}</span></div>
+      <div class="pcells" style="--n:${Math.min(shown.length, 4)}">${shown.map((i) => { const v = p[i];
+        return `<div class="${i === best ? "max" : ""}" style="background:rgba(245,197,66,${0.08 + 0.92 * v});${v > 0.55 ? "color:#17130a" : ""}">${ACT_SHORT[i] || cam.classes[i]}</div>`; }).join("")}</div></div>`;
+  }).join("");
+}
+
+async function liveLoop() {
+  while (live) {
+    try {
+      const f = await api("/api/cam/frame", { image: frameURL() });
+      const r = await brainRun(f.image, f.image_shape[0], f.image_shape[1], cam.duration_ms, { describe: true });
+      if (!live) break;
+      if (!DEC) await loadDecoders();
+      const n = cam.classes.length, decoder = $("decoder").value;
+      const probs = Object.fromEntries(Object.entries(DEC.decoders).map(([k, d]) => [k, decoderProba(d, r.counts, f.image, n)]));
+      const p = probs[decoder] || probs["whole brain"];
+      // each class is a fly action: off below 40% confidence, fully on from 80%; "rest" is no action
+      const levels = p.map((q, i) => (i === 0 ? 0 : Math.min(1, Math.max(0, (q - 0.4) / 0.4))));
+      api("/api/fly/command", { levels }).catch(() => {});
+      const out = Object.assign(r.payload, { image: f.image, image_shape: f.image_shape });
+      renderSeen("cam-seen", f.image, f.image_shape); showResult(out); renderCamProbs({ probs, decoder });
+      camMsg(`Live · ${r.seconds.toFixed(2)} s of computing per frame on this device · ${out.summary[4].active} descending neurons active`);
+      if (performance.now() - lastCamCheck > 15000) { lastCamCheck = performance.now(); refreshCam().catch(() => {}); }
+    } catch (e) { camMsg(`<span style="color:#ff6b6b">${e.message}</span>`); stopLive(); }
+  }
+}
+let lastCamCheck = 0;
+function stopLive() { live = false; $("cam-live").textContent = "Start live"; }
+$("cam-live").onclick = async () => {
+  if (live) return stopLive();
+  if (!camOn) await startCamera();
+  if (!camOn) return;
+  flySetManual(0, false);
+  live = true; $("cam-live").textContent = "Stop live"; liveLoop();
+};
+
+// ---------------- 3D fly body ----------------
+// The server simulates the body (MuJoCo) and streams where every body part is; we draw it here,
+// so each viewer can rotate the fly independently.
+const FLY = { loading: null, es: null, raf: 0, visible: false, meshes: [], manual: 0, centered: false };
+const cap = (t) => t[0].toUpperCase() + t.slice(1);
+
+function checkerTexture() {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d");
+  g.fillStyle = "#1c1f26"; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = "#13151a"; g.fillRect(0, 0, 32, 32); g.fillRect(32, 32, 32, 32);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(20, 20); t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4; return t;
+}
+
+async function flyInit() {
+  const canvas = $("fly3d"), wrap = $("fly-wrap");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color("#0d0f13"); scene.fog = new THREE.Fog("#0d0f13", 16, 34);
+  const camera = new THREE.PerspectiveCamera(30, 4 / 3, 0.05, 200);
+  camera.up.set(0, 0, 1);  // MuJoCo is z-up
+  const hemi = new THREE.HemisphereLight(0xe4ebff, 0x2a2118, 1.6); hemi.position.set(0, 0, 1); scene.add(hemi);
+  const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(4, -3, 8); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x9fb8ff, 0.9); rim.position.set(-5, 4, 3); scene.add(rim);
+
+  const res = await fetch("/api/fly/model");
+  if (!res.ok) throw new Error(res.statusText);
+  const m = await res.json();
+  const verts = decode(m.verts, Float32Array), faces = decode(m.faces, Uint16Array);
+  const geos = m.meshes.map((x) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(verts.slice(x.v0 * 3, (x.v0 + x.nv) * 3), 3));
+    g.setIndex(new THREE.BufferAttribute(faces.slice(x.f0 * 3, (x.f0 + x.nf) * 3), 1));
+    g.computeVertexNormals(); return g;
+  });
+  const mats = new Map();
+  const material = ([r, g, b, a]) => {
+    const k = [r, g, b, a].join();
+    if (!mats.has(k)) mats.set(k, new THREE.MeshStandardMaterial({
+      color: new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace), roughness: 0.6, metalness: 0.05,
+      transparent: a < 1, opacity: a, depthWrite: a >= 1, side: a < 1 ? THREE.DoubleSide : THREE.FrontSide }));
+    return mats.get(k);
+  };
+  const fly = new THREE.Group(); fly.visible = false; scene.add(fly);
+  FLY.meshes = m.geoms.map((g) => {
+    const mesh = new THREE.Mesh(geos[g.mesh], material(g.rgba));
+    if (g.rgba[3] < 1) mesh.renderOrder = 1;  // wings: draw after the opaque body
+    fly.add(mesh); return mesh;
+  });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60),
+    new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.85, metalness: 0 }));
+  floor.position.z = m.floor_z; scene.add(floor);
+
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true; controls.minDistance = 2; controls.maxDistance = 25;
+  controls.maxPolarAngle = Math.PI * 0.56;  // stay above the floor
+  controls.autoRotateSpeed = 2.0;
+  controls.addEventListener("start", () => { controls.autoRotate = false; $("fly-spin").classList.remove("on"); });
+  Object.assign(FLY, { renderer, scene, camera, controls, group: fly });
+  flySetView("oblique");
+  controls.addEventListener("change", () => (FLY.dirty = true));
+
+  new ResizeObserver(() => {
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    if (!w || !h) return;
+    const before = flyFitDist();
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+    flyZoom(flyFitDist() / before);   // keep the fly filling the view (and the user's zoom) when the box changes shape
+    FLY.dirty = true;
+  }).observe(wrap);
+
+  $("fly-meters").innerHTML = m.actions.map((a, i) => (i === 0 ? "" :
+    `<button class="meter" data-act="${i}"><span class="lab"><span>${cap(a)}</span><span>0%</span></span><span class="bar"><i></i></span></button>`)).join("");
+  document.querySelectorAll("[data-act]").forEach((b) => (b.onclick = () => {
+    const i = +b.dataset.act;
+    if (live) { stopLive(); camMsg("Live stopped so you can try actions by hand."); }
+    flySetManual(FLY.manual === i ? 0 : i);
+  }));
+}
+
+function flySetManual(i, send = true) {
+  FLY.manual = i;
+  document.querySelectorAll("[data-act]").forEach((x) => x.classList.toggle("on", +x.dataset.act === i && i > 0));
+  if (send) api("/api/fly/command", { action: i }).catch(() => {});
+}
+
+const FLY_VIEWS = { oblique: [0.72, 0.55, 0.42], front: [1, 0, 0.12], side: [0, 1, 0.1], top: [-0.12, 0, 1] };
+// Framing: 1 = the rest-pose bounding sphere just fits the view; flapping wings rise above it, so aim a bit higher.
+const FLY_FIT = 1.0, FLY_LIFT = 0.12;
+// Camera distance at which the fly (bounding radius FLY.r) fills the view: wide boxes fit its height, tall ones its width.
+function flyFitDist() {
+  const { camera } = FLY, tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  return FLY.r ? (FLY_FIT * FLY.r) / (tanV * Math.min(1, camera.aspect)) : 6.5;
+}
+function flyZoom(s) {   // move the camera s times further from the target, same direction
+  const { camera, controls } = FLY;
+  camera.position.sub(controls.target).multiplyScalar(s).add(controls.target); controls.update();
+}
+function flySetView(v) {
+  const { camera, controls } = FLY, d = FLY_VIEWS[v], n = Math.hypot(...d), dist = flyFitDist();
+  camera.position.set(controls.target.x + (d[0] / n) * dist, controls.target.y + (d[1] / n) * dist, controls.target.z + (d[2] / n) * dist);
+  controls.update();
+  document.querySelectorAll("[data-flyview]").forEach((b) => b.classList.toggle("on", b.dataset.flyview === v));
+}
+document.querySelectorAll("[data-flyview]").forEach((b) => (b.onclick = () => FLY.controls && flySetView(b.dataset.flyview)));
+$("fly-spin").onclick = () => {
+  if (!FLY.controls) return;
+  FLY.controls.autoRotate = !FLY.controls.autoRotate; $("fly-spin").classList.toggle("on", FLY.controls.autoRotate);
+};
+// Full screen: only the fly, e.g. on the projector. Esc (or the button) exits; the ResizeObserver resizes the renderer.
+{
+  const wrap = $("fly-wrap"), btn = $("fly-full");
+  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  btn.hidden = !(document.fullscreenEnabled || document.webkitFullscreenEnabled);   // e.g. iPhone Safari
+  btn.onclick = () => {
+    if (fsEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else (wrap.requestFullscreen || wrap.webkitRequestFullscreen).call(wrap);
+  };
+  const onFs = () => {
+    const on = fsEl() === wrap;
+    btn.textContent = on ? "✕ Exit full screen" : "⛶ Full screen";
+    $("fly-help").textContent = "drag to rotate · scroll to zoom" + (on ? " · Esc to exit" : "");
+  };
+  document.addEventListener("fullscreenchange", onFs); document.addEventListener("webkitfullscreenchange", onFs);
+}
+
+function flyPose(o) {
+  FLY.dirty = true;
+  const a = decode(o.p, Float32Array);  // per body part: x y z qw qx qy qz
+  FLY.meshes.forEach((mesh, i) => {
+    const k = i * 7;
+    mesh.position.set(a[k], a[k + 1], a[k + 2]);
+    mesh.quaternion.set(a[k + 4], a[k + 5], a[k + 6], a[k + 3]);
+  });
+  if (!FLY.centered) {  // aim the camera at the middle of the fly once we know where it is
+    const box = new THREE.Box3().setFromObject(FLY.group, true), c = box.getCenter(new THREE.Vector3());
+    const off = FLY.camera.position.clone().sub(FLY.controls.target);
+    FLY.r = box.getSize(new THREE.Vector3()).length() / 2;
+    c.z += FLY_LIFT * FLY.r;       // raised wings need headroom
+    off.setLength(flyFitDist());   // frame the whole fly
+    FLY.controls.target.copy(c); FLY.camera.position.copy(c).add(off); FLY.controls.update();
+    FLY.centered = true; FLY.group.visible = true; $("fly-msg").hidden = true;
+  }
+  document.querySelectorAll("[data-act]").forEach((b) => {
+    const v = o.l[+b.dataset.act] || 0;
+    b.querySelector("i").style.width = `${v * 100}%`;
+    b.querySelector(".lab span:last-child").textContent = `${Math.round(v * 100)}%`;
+  });
+}
+
+function flyFrame() {
+  if (!FLY.visible) { FLY.raf = 0; return; }
+  // draw only when the pose or the view changed (saves battery on phones)
+  if (FLY.controls.update() || FLY.dirty) { FLY.renderer.render(FLY.scene, FLY.camera); FLY.dirty = false; }
+  FLY.raf = requestAnimationFrame(flyFrame);
+}
+
+function flyShow(on) {
+  FLY.visible = on;
+  if (!on) { if (FLY.es) FLY.es.close(); FLY.es = null; return; }  // no viewers -> the server pauses the physics
+  FLY.loading ||= flyInit().catch((e) => { $("fly-msg").textContent = `Could not load the fly: ${e.message}`; throw e; });
+  FLY.loading.then(() => {
+    if (!FLY.visible) return;
+    if (!FLY.es) { FLY.es = new EventSource("/api/fly/stream"); FLY.es.onmessage = (e) => flyPose(JSON.parse(e.data)); }
+    if (!FLY.raf) flyFrame();
+  }, () => {});
+}
+
+// ---------------- knockouts ----------------
+let KO = { rules: [], cut: false }, KO_OPTS = null, koSide = "both";
+const fmtN = (v) => v.toLocaleString();
+
+function showKnockouts() {   // paint silenced neurons and the midline cut in the 3D map
+  if (!deadAttr || !KO_SUMMARY) return;
+  const dead = deadAttr.array; dead.fill(0);
+  for (const i of decode(KO_SUMMARY.silenced_idx, Int32Array)) { const v = vtx[i]; if (v >= 0) dead[v] = 1; }
+  deadAttr.needsUpdate = true; cutPlane.visible = KO_SUMMARY.cut_hemispheres; needsRender = true;
+}
+function koLabel(r) {
+  const g = r.group ? KO_OPTS.groups.find((x) => x.key === r.group).label : `Cell types: ${r.cell_types}`;
+  return `${g}${r.side !== "both" ? ` · ${r.side}` : ""}${r.fraction < 1 ? ` · ${Math.round(r.fraction * 100)}%` : ""}`;
+}
+function renderKo(s) {
+  KO_SUMMARY = s; showKnockouts();
+  $("ko-list").innerHTML = s.rules.map((r, i) => `<div class="chip"><span>${koLabel(r)} <small>· ${fmtN(s.per_rule[i])} neurons</small></span><button data-del="${i}" title="Remove">×</button></div>`).join("");
+  $("ko-list").querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => { KO.rules.splice(+b.dataset.del, 1); koApply(); }));
+  $("ko-cut").checked = s.cut_hemispheres;
+  const lesioned = s.silenced > 0 || s.cut_hemispheres;
+  const pct = (100 * s.connections_removed / s.connections_total).toFixed(1);
+  $("ko-summary").innerHTML = lesioned
+    ? `<b>${fmtN(s.silenced)} neurons silenced</b>${s.cut_hemispheres ? " · <b>hemispheres disconnected</b>" : ""} · ${fmtN(s.connections_removed)} connections removed (${pct}%).
+       Only the brain on this device is affected. Readouts and the camera decoder were trained on the intact brain (press Train in the camera tab to retrain).`
+    : "Intact brain.";
+  const baseLegend = BRAIN.regions.map((r) => `<span><i style="background:${r.color}"></i>${r.name} (${r.neurons.toLocaleString()})</span>`).join("");
+  $("legend").innerHTML = baseLegend + (s.silenced ? `<span><i style="background:#d9121f"></i>knocked out (${fmtN(s.silenced)})</span>` : "");
+  $("ko-badge").innerHTML = lesioned ? `${s.silenced ? fmtN(s.silenced) + " neurons knocked out" : ""}${s.silenced && s.cut_hemispheres ? "<br>" : ""}${s.cut_hemispheres ? "✂ hemispheres disconnected" : ""}` : "";
+}
+async function koApply() {
+  try {
+    const s = await api("/api/lesion/resolve", { rules: KO.rules, cut_hemispheres: KO.cut });
+    await brainCall({ type: "lesion", silenced: decode(s.silenced_idx, Int32Array), cut: s.cut_hemispheres });
+    renderKo(s);
+    try { localStorage.setItem("fly-knockouts", JSON.stringify(KO)); } catch { /* private mode */ }
+    $("ko-eval-out").innerHTML = "";
+    if (appMode === "draw" && RESULT && RESULT.predictions && !busy) run();   // show the effect right away
+  } catch (e) { $("ko-hint").innerHTML = `<span style="color:#ff6b6b">${e.message}</span>`; }
+}
+function koHint() {
+  const v = $("ko-target").value;
+  if (v === "__types") { $("ko-hint").textContent = "Comma-separated FlyWire cell types; * matches anything (e.g. T4*, DNp*)."; return; }
+  const g = KO_OPTS.groups.find((x) => x.key === v), c = g.neurons;
+  const n = Math.round(c[koSide] * (+$("ko-frac").value / 100));
+  $("ko-hint").textContent = `${fmtN(n)} of ${fmtN(c[koSide])} neurons${koSide !== "both" ? ` (${koSide} side)` : ""}`;
+}
+async function koInit() {
+  KO_OPTS = await (await fetch("/api/lesion/options")).json();
+  const cats = [...new Set(KO_OPTS.groups.map((g) => g.category))];
+  $("ko-target").innerHTML = cats.map((c) => `<optgroup label="${c}">${KO_OPTS.groups.filter((g) => g.category === c)
+    .map((g) => `<option value="${g.key}">${g.label}</option>`).join("")}</optgroup>`).join("") +
+    `<optgroup label="By name"><option value="__types">Cell types by name…</option></optgroup>`;
+  $("ko-target").value = "optic";
+  $("ko-cut-n").textContent = `Removes all ${fmtN(KO_OPTS.cross_hemisphere_connections)} connections between left-side and right-side neurons.`;
+  try { KO = JSON.parse(localStorage.getItem("fly-knockouts")) || KO; } catch { /* nothing stored */ }
+  koHint();
+  if (KO.rules.length || KO.cut) koApply();   // restore this device's knockouts
+  else renderKo({ rules: [], cut_hemispheres: false, per_rule: [], silenced: 0, connections_removed: 0,
+                  connections_total: BRAIN.config.synapses, silenced_idx: "" });
+}
+$("ko-target").onchange = () => { $("ko-types").hidden = $("ko-target").value !== "__types"; koHint(); };
+$("ko-frac").oninput = () => { $("ko-frac-v").textContent = $("ko-frac").value + "%"; koHint(); };
+document.querySelectorAll("[data-side]").forEach((b) => (b.onclick = () => {
+  koSide = b.dataset.side; document.querySelectorAll("[data-side]").forEach((x) => x.classList.toggle("on", x === b)); koHint();
+}));
+$("ko-add").onclick = () => {
+  const v = $("ko-target").value, rule = { side: koSide, fraction: +$("ko-frac").value / 100, seed: Math.floor(Math.random() * 1e6) };
+  if (v === "__types") { if (!$("ko-types").value.trim()) return; rule.cell_types = $("ko-types").value.trim(); } else rule.group = v;
+  KO.rules.push(rule); koApply();
+};
+$("ko-cut").onchange = () => { KO.cut = $("ko-cut").checked; koApply(); };
+$("ko-reset").onclick = () => { KO = { rules: [], cut: false }; koApply(); };
+$("ko-eval").onclick = async () => {
+  const btn = $("ko-eval"); btn.disabled = true;
+  const out = $("ko-eval-out");
+  out.innerHTML = `<div class="ko-hint"><span class="spin"></span>Loading 200 test digits…</div>`;
+  try {
+    await BR.ready;
+    if (!READOUTS) await loadReadouts();
+    const t = await (await fetch("/api/mnist/test?n=200")).json(), px = decode(t.images, Uint8Array), keys = Object.keys(READOUTS);
+    const correct = Object.fromEntries(keys.map((k) => [k, 0])), t0 = performance.now();
+    for (let i = 0; i < t.n; i++) {
+      const img = Float32Array.from(px.subarray(i * 784, (i + 1) * 784), (v) => v / 255);
+      const res = await brainRun(img, 28, 28, MS());
+      for (const k of keys) { const p = decoderProba(READOUTS[k], res.counts, img, 10); if (p.indexOf(Math.max(...p)) === t.labels[i]) correct[k]++; }
+      localProgress(out, "Running MNIST test digits through the brain on this device", i + 1, t.n, t0);
+    }
+    const r = { n: t.n, seconds: ((performance.now() - t0) / 1000).toFixed(0),
+                results: keys.map((k) => ({ key: k, intact: t.intact[k], lesioned: correct[k] / t.n })) };
+    out.innerHTML = `<table><tr><th>readout</th><th>intact</th><th>now</th><th>change</th></tr>` + r.results.map((x) => {
+      const d = (x.lesioned - x.intact) * 100;
+      return `<tr><td>${(SHORT[x.key] || x.key).replace(" (brain → body)", "").replace(" — no brain (baseline)", "")}</td><td>${(x.intact * 100).toFixed(0)}%</td><td>${(x.lesioned * 100).toFixed(0)}%</td>
+              <td class="${d < -3 ? "down" : "same"}">${d > 0 ? "+" : ""}${d.toFixed(0)}</td></tr>`;
+    }).join("") + `</table><div class="ko-hint">${r.n} MNIST test digits, ${r.seconds}s. Differences under ~4 points are noise.</div>`;
+  } catch (e) { $("ko-eval-out").innerHTML = `<div class="ko-hint" style="color:#ff6b6b">${e.message}</div>`; }
+  finally { btn.disabled = false; }
+};
+
+// ---------------- init ----------------
+(async () => {
+  const b = await (await fetch("/api/brain")).json();
+  b.pos = decode(b.pos, Int16Array); b.region = decode(b.region, Uint8Array);
+  BRAIN = b;
+  brainInit(b);
+  loadReadouts().catch(() => {});
+  const c = b.config;
+  $("sub").textContent = `${b.n.toLocaleString()} neurons · ${(c.synapses / 1e6).toFixed(1)}M connections (FlyWire v783) · image enters at the ${c.layer} (${c.n_inputs.toLocaleString()} neurons, up to ${c.rate_hz} Hz) · ${c.duration_ms} ms per digit · readouts trained on ${c.n_train.toLocaleString()} digits${c.shuffled ? " · SHUFFLED WIRING (control)" : ""}`;
+  $("legend").innerHTML = b.regions.map((r) => `<span><i style="background:${r.color}"></i>${r.name} (${r.neurons.toLocaleString()})</span>`).join("");
+  renderPredictions(); layout();
+  new ResizeObserver(layout).observe($("map-wrap"));
+  koInit();
+})();
+
+// ---------------- join from the local network ----------------
+let NET = null;
+(async () => {
+  try {
+    const n = NET = await (await fetch("/api/network")).json();
+    if (!n.shared) return;
+    $("join-qr").innerHTML = $("join-big-qr").innerHTML = n.qr_svg;
+    $("join-url").textContent = n.url.replace(/^https?:\/\//, "");
+    $("join-big-url").textContent = n.url;
+    $("join").hidden = false;
+    const big = $("join-big");
+    $("join").onclick = () => (big.hidden = false);
+    big.onclick = () => (big.hidden = true);
+    addEventListener("keydown", (e) => { if (e.key === "Escape") big.hidden = true; });
+  } catch { /* no network info: just hide the chip */ }
+})();
+</script>
+</body>
+</html>

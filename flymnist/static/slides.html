@@ -1,0 +1,1251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>I Believe I Am Fly</title>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<style>
+  :root {
+    --bg: #0b0d11; --panel: #13161c; --panel-2: #1a1e26; --line: #262b35;
+    --text: #e6e8ec; --muted: #8b93a1; --accent: #f5c542;
+    --c-eye: #f5c542; --c-optic: #4fc3f7; --c-vpn: #b388ff; --c-central: #5be3a0; --c-dn: #ff6b6b; --c-other: #8a9099;
+    /* one base size drives everything: ~30px on a 1920x1080 projector, ~22px on a laptop, 16px on phones */
+    --fs: clamp(16px, min(1.55vw, 2.75vh), 46px);
+    --pad-x: clamp(16px, 4vw, 100px);
+    --radius: 14px;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); overflow: hidden; }
+  body { font-size: var(--fs); line-height: 1.35; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 0.15em; }
+  [hidden] { display: none !important; }
+  b, strong { font-weight: 650; }
+  .muted { color: var(--muted); }
+  .small { font-size: max(0.74em, 14px); }
+  .num { font-variant-numeric: tabular-nums; }
+  .todo-fact { background: rgba(255, 79, 216, 0.14); color: #ffb8f1; outline: 2px dashed #ff4fd8; outline-offset: 1px;
+               border-radius: 5px; padding: 0 0.3em; font-weight: 600; }
+  .todo-fact::before { content: "TODO "; font-size: 0.72em; letter-spacing: 0.06em; color: #ff4fd8; font-weight: 800; }
+
+  /* ---------- deck ---------- */
+  #deck { position: fixed; inset: 0; }
+  .slide { position: absolute; inset: 0; padding: calc(var(--fs) * 1.5) var(--pad-x) calc(var(--fs) * 2.7);
+           display: grid; grid-template-rows: auto minmax(0, 1fr); gap: calc(var(--fs) * 1.1);
+           opacity: 0; visibility: hidden; transform: translateX(var(--dx, 0)); transition: opacity 0.35s, transform 0.35s, visibility 0s 0.35s; }
+  .slide.active { opacity: 1; visibility: visible; transform: none; transition: opacity 0.35s, transform 0.35s; }
+  .slide.before { --dx: -2.5vw; } .slide.after { --dx: 2.5vw; }
+  .slide > header { min-width: 0; }
+  .kicker { color: var(--accent); font-size: max(0.6em, 13px); text-transform: uppercase; letter-spacing: 0.14em; font-weight: 700; margin-bottom: 0.45em; }
+  .slide h1 { font-size: 2.15em; line-height: 1.06; margin: 0; letter-spacing: -0.022em; font-weight: 720; text-wrap: balance; }
+  .body { display: grid; grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.38fr); gap: calc(var(--fs) * 2); min-height: 0; }
+  .body.wide { grid-template-columns: minmax(0, 1fr); }
+  .text { display: flex; flex-direction: column; gap: 0.9em; min-height: 0; min-width: 0; }
+  .key { font-size: 1.3em; font-weight: 600; line-height: 1.22; margin: 0; text-wrap: balance; }
+  .key em { font-style: normal; color: var(--accent); }
+  ul.pts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.6em; }
+  ul.pts li { padding-left: 1.05em; position: relative; }
+  ul.pts li::before { content: ""; position: absolute; left: 0.05em; top: 0.52em; width: 0.4em; height: 0.4em; border-radius: 50%; background: var(--accent); }
+  .callout { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: 0.7em 0.9em; }
+  .callout h3 { margin: 0 0 0.3em; font-size: max(0.62em, 13px); text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); }
+  .btn { display: inline-flex; align-items: center; gap: 0.5em; background: var(--accent); color: #17130a; border-radius: 10px; padding: 0.5em 0.95em;
+         font-weight: 650; text-decoration: none; width: fit-content; }
+  .btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+  .stats { display: grid; grid-template-columns: max-content 1fr; gap: 0.45em 0.9em; align-items: baseline; }
+  .stat { display: contents; }
+  .stat b { font-size: 1.25em; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat span { color: var(--muted); font-size: max(0.78em, 14px); line-height: 1.25; }
+
+  /* visual / demo area */
+  .vis { position: relative; min-height: 0; min-width: 0; border-radius: var(--radius); background: #05070a; border: 1px solid var(--line); overflow: hidden; }
+  .vis.plain { background: transparent; border: 0; overflow: visible; }
+  .viscol { display: flex; flex-direction: column; gap: 0.7em; min-height: 0; min-width: 0; }
+  .viscol > .vis { flex: 1; }
+  .demo-host { position: absolute; inset: 0; }
+  .demo-status { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: max(0.72em, 14px); pointer-events: none; }
+  .demo-status::before { content: ""; width: 0.8em; height: 0.8em; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%;
+                          display: inline-block; margin-right: 0.5em; animation: spin 0.8s linear infinite; vertical-align: -0.1em; }
+  .demo-status { display: flex; align-items: center; justify-content: center; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .demo-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.6em;
+                   padding: 1em; text-align: center; color: var(--muted); font-size: max(0.75em, 14px); }
+  .demo-fallback svg { width: 100%; height: auto; max-height: 78%; }
+  .demo-fallback .why { font-size: max(0.8em, 13px); }
+
+  /* nav chrome */
+  #nav { position: fixed; right: var(--pad-x); bottom: calc(var(--fs) * 0.55); display: flex; gap: 0.35em; align-items: center; z-index: 20;
+         font-size: max(0.6em, 14px); }
+  #nav button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 999px; min-width: 2.4em; height: 2.4em;
+                padding: 0 0.7em; font: inherit; cursor: pointer; display: grid; place-items: center; }
+  #nav button:hover { border-color: #3a4150; }
+  #nav button.on { color: var(--accent); border-color: var(--accent); }
+  #count { color: var(--muted); font-variant-numeric: tabular-nums; padding: 0 0.5em; min-width: 4.2em; text-align: center; }
+  #foot { position: fixed; left: var(--pad-x); bottom: calc(var(--fs) * 0.55); height: calc(max(0.6em, 14px) * 2.4); display: flex; align-items: center;
+          color: #5b6270; font-size: max(0.55em, 13px); z-index: 5; pointer-events: none; }
+  #progress { position: fixed; left: 0; bottom: 0; height: 4px; background: var(--accent); width: 0; transition: width 0.35s; z-index: 21; }
+  #notes { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: 42vh; overflow: auto; background: rgba(19, 22, 28, 0.97);
+           border-top: 1px solid var(--line); padding: 0.8em var(--pad-x) 1.2em; font-size: max(0.66em, 15px); transform: translateY(105%);
+           transition: transform 0.25s; box-shadow: 0 -10px 30px rgba(0,0,0,0.5); }
+  #notes.show { transform: none; }
+  #notes .bar { display: flex; gap: 0.6em; align-items: center; margin-bottom: 0.4em; color: var(--muted); }
+  #notes .bar span { flex: 1; }
+  #notes button, #presenter button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 0.3em 0.7em; font: inherit; cursor: pointer; }
+  .notes { display: none; }
+  .notes-body ul { margin: 0.2em 0; padding-left: 1.2em; } .notes-body li { margin: 0.25em 0; }
+  .notes-body p { margin: 0.3em 0; }
+  .notes-body .opt { color: var(--accent); font-weight: 700; }
+  #qr-big { position: fixed; inset: 0; z-index: 50; background: rgba(5, 6, 9, 0.94); display: grid; place-items: center; cursor: pointer; text-align: center; }
+  #qr-big .qr { width: min(72vmin, 640px); aspect-ratio: 1; background: #fff; border-radius: 16px; padding: 12px; margin: 0 auto 0.6em; }
+  #qr-big .qr svg, .join-qr svg { display: block; width: 100%; height: 100%; }
+  #qr-big .u { font-size: clamp(20px, 4.4vmin, 48px); font-weight: 650; word-break: break-all; }
+
+  /* presenter window (?presenter) */
+  #presenter { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 28px; font-size: clamp(16px, 2.1vw, 28px); overflow: auto; }
+  #presenter .top { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  #presenter .top #p-title { flex: 1; font-weight: 700; font-size: 1.2em; min-width: 10em; }
+  #p-timer { font-variant-numeric: tabular-nums; color: var(--accent); cursor: pointer; }
+  #p-notes { flex: 1; line-height: 1.45; }
+  #p-next { color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
+
+  /* ---------- slide 1: title ---------- */
+  .s-title { grid-template-rows: minmax(0, 1fr); }
+  .title-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: calc(var(--fs) * 1.6); min-height: 0; align-items: center; }
+  .title-grid h1 { font-size: 3.5em; line-height: 0.98; letter-spacing: -0.035em; }
+  .title-grid h1 span { color: var(--accent); }
+  .title-grid .sub { font-size: 1.22em; color: #c4c9d2; margin: 0.7em 0 1.4em; max-width: 24em; line-height: 1.25; }
+  .join { display: flex; gap: 1em; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+          padding: 0.8em; max-width: 30em; }
+  .join .join-qr { width: min(13em, 30vh); aspect-ratio: 1; background: #fff; border-radius: 10px; padding: 6px; flex: none; cursor: zoom-in; }
+  .join h3 { margin: 0 0 0.25em; font-size: 1.05em; }
+  .join .join-url { font-weight: 650; word-break: break-all; font-variant-numeric: tabular-nums; }
+  .join .demo-wrap.inline { margin-top: 0.6em; font-size: max(0.7em, 13px); }
+  .join .demo-wrap.inline .demo-host { position: static; }
+  .join .demo-wrap.inline .demo-status { position: static; justify-content: flex-start; }
+  .flyvis { position: relative; height: 100%; min-height: 0; }
+  .flyvis canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .flyvis .cap { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; color: var(--muted); font-size: max(0.62em, 13px); }
+
+  /* ---------- slide 2: energy chart ---------- */
+  .chart { display: flex; flex-direction: column; gap: 0.55em; padding: 0.4em 0.2em; height: 100%; justify-content: center; }
+  .erow { display: grid; grid-template-columns: 10.5em minmax(0, 1fr); gap: 0.8em; align-items: center; }
+  .elab { font-size: 0.8em; line-height: 1.15; text-align: right; }
+  .elab small { display: block; color: var(--muted); font-size: 0.82em; margin-top: 0.15em; }
+  .etrack { position: relative; height: 1.6em; border-radius: 6px; background-color: #0f1217;
+            background-image: repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px calc(100% / var(--dec, 16))); }
+  .etrack i { position: absolute; left: 0; top: 0.18em; bottom: 0.18em; width: 0; border-radius: 5px; background: var(--c, var(--accent));
+              transition: width 1.1s cubic-bezier(.2,.7,.2,1); transition-delay: calc(var(--k, 0) * 0.12s); }
+  .slide:not(.active) .etrack i { width: 0 !important; transition: none; }
+  .etrack b { position: absolute; top: 50%; transform: translateY(-50%); font-size: 0.74em; white-space: nowrap; padding-left: 0.5em; font-variant-numeric: tabular-nums;
+              opacity: 0; transition: opacity 0.4s; transition-delay: calc(var(--k, 0) * 0.12s + 0.5s); }
+  .slide.active .etrack b { opacity: 1; }
+  .etrack.unknown { background-image: none; border: 2px dashed #ff4fd8; background-color: rgba(255,79,216,0.06); }
+  .etrack.unknown b { left: 0.4em !important; color: #ffb8f1; }
+  .eaxis { display: grid; grid-template-columns: 10.5em minmax(0, 1fr); gap: 0.8em; }
+  .eaxis .ticks { position: relative; height: 1.4em; font-size: max(0.6em, 12px); color: var(--muted); }
+  .eaxis .ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; top: 0.2em; }
+  .eaxis .note { grid-column: 2; font-size: max(0.62em, 12px); color: var(--muted); }
+
+  /* bar charts (slides 9, 12, 13) */
+  .bars { display: flex; flex-direction: column; gap: 0.42em; }
+  .brow { display: grid; grid-template-columns: 9.4em minmax(0, 1fr) 3.4em; gap: 0.6em; align-items: center; font-size: 0.8em; }
+  .brow .lab { text-align: right; line-height: 1.1; }
+  .brow .track { position: relative; height: 1.25em; background: #0f1217; border-radius: 5px; }
+  .brow .track i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--c, var(--accent)); border-radius: 5px;
+                   transition: width 0.9s cubic-bezier(.2,.7,.2,1); transition-delay: calc(var(--k, 0) * 0.08s); }
+  .slide:not(.active) .brow .track i { width: 0 !important; transition: none; }
+  .brow .track i.rand { background: repeating-linear-gradient(135deg, var(--c) 0 6px, color-mix(in srgb, var(--c) 45%, transparent) 6px 12px); }
+  .brow .val { font-variant-numeric: tabular-nums; font-weight: 650; }
+  .brow.total .lab, .brow.total .val { font-weight: 750; }
+  .chance { position: absolute; top: -0.2em; bottom: -0.2em; left: 10%; border-left: 2px dashed #6f7682; }
+  .bars .legend { display: flex; gap: 1.2em; flex-wrap: wrap; font-size: max(0.66em, 13px); color: var(--muted); padding-left: 10em; }
+  .bars .legend i { display: inline-block; width: 1.4em; height: 0.8em; border-radius: 3px; vertical-align: -0.05em; margin-right: 0.4em; background: #9aa2af; }
+  .bars .legend i.rand { background: repeating-linear-gradient(135deg, #9aa2af 0 5px, #4b505a 5px 10px); }
+
+  /* slide 3: pipeline cards */
+  .pipe { display: flex; align-items: stretch; gap: 0.5em; }
+  .pipe .arrow { align-self: center; color: var(--muted); font-size: 1.4em; flex: none; }
+  .card { flex: 1 1 0; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9em 1em;
+          display: flex; flex-direction: column; gap: 0.35em; text-decoration: none; color: inherit; position: relative; }
+  a.card:hover { border-color: #3a4150; }
+  .card .ico { height: 3.6em; width: 100%; margin-bottom: 0.3em; }
+  .card .tag { font-size: max(0.56em, 12px); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); font-weight: 700; }
+  .card h3 { margin: 0; font-size: 1.05em; line-height: 1.15; }
+  .card p { margin: 0; font-size: max(0.74em, 14px); color: #c4c9d2; line-height: 1.3; }
+  .card .links { margin-top: auto; padding-top: 0.4em; font-size: max(0.66em, 13px); display: flex; flex-wrap: wrap; gap: 0.3em 0.9em; }
+  .card .links a { white-space: nowrap; }
+  .card.ours { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  .card.todo { border: 2px dashed #ff4fd8; background: rgba(255,79,216,0.05); }
+  .s3-bottom { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 1.2em; align-items: stretch; margin-top: 1.1em; }
+
+  /* slide 6: region legend */
+  .fn-list { display: grid; gap: 0.38em; font-size: 0.82em; margin: 0; padding: 0; list-style: none; }
+  .fn-list li { display: grid; grid-template-columns: 0.7em 1fr; gap: 0.55em; align-items: baseline; }
+  .fn-list li i { width: 0.62em; height: 0.62em; border-radius: 50%; background: var(--c); display: inline-block; }
+  .fn-list li span { color: var(--muted); }
+  .regbar { display: flex; height: 0.9em; border-radius: 6px; overflow: hidden; flex: none; }
+  .regbar div { background: var(--c); }
+  .reglegend { display: flex; flex-wrap: wrap; gap: 0.25em 1.1em; font-size: max(0.64em, 13px); color: var(--muted); flex: none; }
+  .reglegend span i { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; background: var(--c); margin-right: 0.35em; vertical-align: -0.02em; }
+  .reglegend b { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  /* slide 7: equation */
+  .eq { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 0.7em 0.9em; font-family: "Cambria Math", "STIX Two Math", Georgia, serif;
+        font-size: 1.02em; line-height: 1.55; }
+  .eq .r { color: var(--muted); font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.7em; margin-left: 0.4em; }
+  .eq var { font-style: italic; }
+  .spec { display: grid; gap: 0.45em; font-size: 0.82em; }
+  .spec div { display: grid; grid-template-columns: 4.6em 1fr; gap: 0.6em; }
+  .spec div > b { color: var(--accent); }
+
+  /* slide 8 & 10: mini pipeline */
+  .flow { display: flex; flex-wrap: wrap; gap: 0.35em; align-items: center; font-size: max(0.7em, 13px); }
+  .flow span { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 0.25em 0.55em; }
+  .flow span.fixed { border-color: #3d6f8a; color: #9fdcf9; }
+  .flow span.trained { border-color: var(--accent); color: var(--accent); }
+  .flow em { font-style: normal; color: var(--muted); }
+  .gpipe { display: flex; gap: 0.4em; align-items: stretch; }
+  .gpipe .arrow { align-self: center; color: var(--muted); flex: none; font-size: 1.1em; }
+  .gstep { flex: 1 1 0; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 0.9em 0.6em 1em; text-align: center;
+           display: flex; flex-direction: column; gap: 0.3em; align-items: center; }
+  .gstep svg { width: 100%; height: 5.6em; }
+  .gstep h3 { margin: 0; font-size: 0.88em; line-height: 1.15; }
+  .gstep p { margin: 0; font-size: max(0.64em, 13px); color: var(--muted); line-height: 1.25; }
+  .gstep.trained { border-color: var(--accent); }
+  .s10-bottom { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.6em; margin-top: 1.6em; align-items: start; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4em; }
+  .chips span { background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 0.22em 0.75em; font-size: max(0.72em, 13px); }
+  .chips span:first-child { color: var(--muted); }
+
+  /* learning slide ("How a fly learns"): short text, wide diagram */
+  .s-learn .body { grid-template-columns: minmax(0, 0.58fr) minmax(0, 1.62fr); }
+  .s-learn .text { justify-content: center; }
+  .s-learn ul.pts { gap: 1.1em; }
+
+  /* slide 13 */
+  .ex { counter-reset: ex; list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.6em; }
+  .ex li { counter-increment: ex; display: grid; grid-template-columns: 1.7em 1fr; gap: 0.5em; align-items: baseline; }
+  .ex li::before { content: counter(ex); width: 1.5em; height: 1.5em; border-radius: 50%; background: var(--accent); color: #17130a; font-weight: 800;
+                   display: grid; place-items: center; font-size: 0.8em; }
+  .ex li small { display: block; color: var(--muted); font-size: max(0.74em, 13px); }
+  .join.compact .join-qr { width: min(9em, 22vh); }
+  .join.compact .join-url { font-size: 0.85em; word-break: normal; white-space: nowrap; }
+
+  /* title slide: no footer line */
+  body:has(.s-title.active) #foot { display: none; }
+
+  /* energy slide: one-line takeaways under the chart */
+  .s-energy .body.wide { grid-template-rows: minmax(0, 1fr) auto; gap: calc(var(--fs) * 0.9); }
+  .s-energy .chart { gap: 0.7em; }
+  .s-energy .erow, .s-energy .eaxis { grid-template-columns: 11.5em minmax(0, 1fr); }
+  .s-energy .elab { font-size: 0.86em; }
+  .s-energy .etrack { height: 1.75em; }
+  .s-energy .etrack b { font-size: 0.8em; }
+  .take { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.2em; }
+  .take .callout { margin: 0; font-size: 0.92em; line-height: 1.25; }
+  .take .callout.big { border-left-color: var(--c-dn); }
+
+  /* tools slide */
+  .s-tools .pipe .card p.like { color: var(--accent); font-weight: 600; }
+  .s-tools .card .num-line { color: var(--muted); font-size: max(0.66em, 13px); }
+  .s-tools .s3-bottom { grid-template-columns: minmax(0, 1fr); }
+
+  /* gesture slide: one big GIF, one line, one button */
+  .gwave { display: flex; flex-direction: column; align-items: center; gap: calc(var(--fs) * 0.8); min-height: 0; height: 100%; }
+  .gwave-media { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+  .gwave-media img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius); border: 1px solid var(--line); background: #05070a; }
+  .gwave-ph { width: min(100%, 36em); aspect-ratio: 16 / 9; max-height: 100%; display: grid; place-items: center; text-align: center; padding: 1em;
+              color: var(--muted); border: 2px dashed var(--line); border-radius: var(--radius); background: var(--panel); }
+  .gwave-foot { display: flex; align-items: center; justify-content: center; gap: 1.2em; flex-wrap: wrap; flex: none; }
+  .gwave-foot .key { margin: 0; }
+
+  /* slides with only a headline and a demo / a narrow text column */
+  .body.thin { grid-template-columns: minmax(0, 0.58fr) minmax(0, 1.6fr); }
+
+  /* video slide: two phones side by side */
+  .phones { display: flex; justify-content: center; align-items: flex-start; gap: calc(var(--fs) * 2.2); min-height: 0; height: 100%; }
+  /* the screen height is what is left of the viewport after header, caption and slide padding; width follows at 9:16 */
+  .phone { --ph: max(240px, calc(100vh - var(--fs) * 10.5)); display: flex; flex-direction: column; gap: 0.45em; align-items: center;
+           width: calc(var(--ph) * 9 / 16 + 6px); flex: none; }
+  .phone .screen { position: relative; width: 100%; aspect-ratio: 9 / 16; background: #000; border: 3px solid #2a303b;
+                   border-radius: 22px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+  .phone iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .phone .vfb { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5em;
+                padding: 1em; text-align: center; color: var(--muted); font-size: max(0.66em, 13px); }
+  .phone .cap { max-width: 22em; text-align: center; font-size: max(0.6em, 13px); color: var(--muted); line-height: 1.25; }
+  .phone .cap a { color: var(--muted); }
+
+  /* ---------- small screens: stack and scroll ---------- */
+  @media (max-width: 600px), (max-width: 900px) and (orientation: portrait) {
+    :root { --fs: 16px; }
+    .slide { display: block; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 22px 16px 84px; }
+    .slide > header { margin-bottom: 16px; }
+    .slide h1 { font-size: 1.9em; }
+    .body, .title-grid, .s3-bottom, .s10-bottom { display: flex; flex-direction: column; gap: 18px; }
+    .vis, .viscol > .vis { flex: none; height: min(70vh, 520px); min-height: 320px; }
+    .vis.plain { height: auto; min-height: 0; }
+    .viscol { min-height: auto; }
+    .title-grid h1 { font-size: 2.6em; }
+    .title-grid .sub { margin: 0.5em 0 1em; }
+    .join { flex-direction: column; align-items: flex-start; }
+    .join .join-qr { width: min(60vw, 240px); }
+    .flyvis { height: 300px; flex: none; }
+    .pipe, .gpipe { flex-direction: column; }
+    .pipe .arrow, .gpipe .arrow { transform: rotate(90deg); }
+    .gstep { flex-direction: row; text-align: left; gap: 12px; padding: 8px 12px; }
+    .gstep svg { height: 2.6em; width: 4.2em; flex: none; }
+    .gstep h3 { flex: none; width: 8.5em; }
+    .title-grid { align-items: stretch; }
+    .flyvis { width: 100%; }
+    .join .join-qr { width: min(48vw, 200px); }
+    #nav { background: rgba(11, 13, 17, 0.88); border-radius: 999px; padding: 4px; }
+    .erow, .eaxis, .s-energy .erow, .s-energy .eaxis { grid-template-columns: 7.2em minmax(0, 1fr); gap: 0.5em; }
+    .s-energy .etrack b { font-size: 0.72em; }
+    .s-energy .eaxis .ticks span.minor { display: none; }
+    .gwave { height: auto; }
+    .gwave-media img { max-height: 60vh; }
+    .take { grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 14px; }
+    .phones { height: auto; gap: 12px; }
+    .phone { width: auto; flex: 1 1 0; min-width: 0; }
+    .phone .screen { border-radius: 16px; }
+    .brow { grid-template-columns: 6.4em minmax(0, 1fr) 3.2em; }
+    .bars .legend { padding-left: 0; }
+    #foot { display: none; }
+    #nav { right: 12px; bottom: 12px; }
+    #nav .wide-only { display: none; }
+    /* the learning diagram sets its own (tall) height on phones */
+    .s-learn .vis.demo-wrap { height: auto; min-height: 320px; }
+    .s-learn .vis.demo-wrap .demo-host { position: relative; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .slide, .etrack i, .brow .track i, #progress { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<main id="deck">
+
+<!-- ============================ 1. Title ============================ -->
+<section class="slide s-title" data-title="I Believe I Am Fly">
+  <div class="title-grid">
+    <div>
+      <h1>I Believe<br>I Am <span>Fly</span></h1>
+      <p class="sub">Utilizing the <i>Drosophila</i> brain connectome for practical tasks</p>
+      <div class="join" id="join-box">
+        <div class="join-qr" title="Click for a big QR code"></div>
+        <div style="min-width:0">
+          <h3>Join on your phone</h3>
+          <div class="join-url muted">looking up the address…</div>
+          <div class="small muted join-note">Same Wi-Fi. Opens the app and starts the ~40 MB brain download now.</div>
+          <div class="demo-wrap inline" data-mod="brain" data-fn="joinBrain" data-optional>
+            <div class="demo-host"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flyvis" aria-hidden="true">
+      <canvas id="title-canvas"></canvas>
+    </div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li>The title is a pun on the song "I Believe I Can Fly". Today we take a real fruit fly brain, mapped neuron by neuron, and use it as a computer.</li>
+      <li>The glowing picture on the right: each dot is a neuron, each flash is one "spike" (a neuron firing). The real map has 138,639 neurons.</li>
+      <li><b>First thing: everyone, please scan the QR code now.</b> It opens our app and starts downloading the fly brain (about 40 MB) onto your phone. Each phone then runs its <i>own</i> copy of the brain, so nobody has to wait for anyone else.</li>
+      <li>You need to be on the same Wi-Fi as this laptop. The link starts with https so the camera works later. Your phone will warn "connection is not private": that's expected here, accept it once (Safari: Show Details → visit this website; Chrome: Advanced → Proceed).</li>
+      <li>Today's plan: why brains are so energy-efficient → the tools that put a fly brain in a computer → what one neuron does → how the fly brain model works → teaching it to read handwritten digits → controlling a virtual fly with your hands → how real flies learn.</li>
+      <li>Keys: ←/→ or Space to move, <b>n</b> notes, <b>f</b> fullscreen, <b>q</b> big QR code.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 2. Paradox ============================ -->
+<section class="slide s-energy" data-title="The paradox">
+  <header><h1>AI runs on power plants. Your brain runs on a teaspoon of sugar.</h1></header>
+  <div class="body wide">
+    <div class="vis plain">
+      <!-- Energy measured in teaspoons of sugar (1 tsp ≈ 4 g ≈ 16 kcal ≈ 67 kJ), log scale. data-t = teaspoons. -->
+      <div class="chart" id="energy">
+        <div class="erow" data-t="2e-5" style="--c: var(--c-optic)">
+          <div class="elab">A fly's brain, its whole life</div>
+          <div class="etrack"><i></i><b>1/50,000 tsp</b></div>
+        </div>
+        <div class="erow" data-t="0.0129" style="--c: var(--c-dn)">
+          <div class="elab">One question to a chatbot</div>
+          <div class="etrack"><i></i><b>1/80 tsp</b></div>
+        </div>
+        <div class="erow" data-t="1.07" style="--c: var(--c-central)">
+          <div class="elab">Your brain, 1 hour</div>
+          <div class="etrack"><i></i><b>1 tsp</b></div>
+        </div>
+        <div class="erow" data-t="25.8" style="--c: var(--c-central)">
+          <div class="elab">Your brain, 1 day</div>
+          <div class="etrack"><i></i><b>26 tsp</b></div>
+        </div>
+        <div class="erow" data-t="7.53e5" style="--c: var(--c-central)">
+          <div class="elab">Your brain, 80 years</div>
+          <div class="etrack"><i></i><b>750,000 tsp</b></div>
+        </div>
+        <div class="erow" data-t="6.9e7" style="--c: var(--c-dn)">
+          <div class="elab">Training GPT-3, once</div>
+          <div class="etrack"><i></i><b>69 million tsp</b></div>
+        </div>
+        <div class="eaxis"><div></div><div class="ticks"></div><div class="note">Energy in teaspoons of sugar. Each step on the scale is 10× more.</div></div>
+      </div>
+    </div>
+    <div class="take">
+      <div class="callout">One question to a chatbot is <b>cheap</b>: a pinch of sugar.</div>
+      <div class="callout big"><b>Training</b> the AI is enormous: what your brain uses in <b>~7,300 years</b>, about <b>92 whole human lives</b>.</div>
+    </div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li>Everything on this chart is measured in one unit: <b>teaspoons of sugar</b>. One teaspoon is about 4 g of sugar, 16 kcal, or 67 kJ of energy.</li>
+      <li>Your brain uses about <b>20 watts</b>, less than a light bulb. So one teaspoon of sugar keeps it running for about an hour (67 kJ ÷ 20 W ≈ 56 minutes). A whole day of thinking: about 26 teaspoons. (The 20 W is about 20% of a resting body's ~100 W.)</li>
+      <li>The scale jumps by 10× at each step, otherwise the small bars would be invisible. The GPT-3 bar is about 69 million times the "1 hour" bar.</li>
+      <li><b>One chatbot question is cheap.</b> Google says a typical Gemini text question uses 0.24 Wh (2025, counting the whole data centre; Google's own report, not peer-reviewed). That's about 1/80 of a teaspoon, so one teaspoon ≈ 80 questions. Epoch AI estimates about 0.3 Wh for a ChatGPT question; long "thinking" answers use more.</li>
+      <li><b>Training is the expensive part.</b> Training GPT-3 once took about 1,287 MWh (Patterson et al., 2021). Your brain over an 80-year life uses about 14 MWh. So training GPT-3 ≈ 92 human lifetimes ≈ 7,300 years of one brain. Newer models are much bigger: Epoch AI estimates Grok 4's training at about 310 GWh, roughly 1.8 million brain-years.</li>
+      <li><b>The fly:</b> its brain uses about 256 nanowatts (Panda et al., Cell Reports Methods 2026, measured on brains taken out of the fly, so a living one may differ). Over its ~2-month life that's about 1.3 joules, 1/50,000 of a teaspoon. Your brain uses about 80 million times more power, but it also has about 600,000 times more neurons.</li>
+      <li>Fair warning: it's not a perfect comparison. Training a model is not the same as living a life, and GPT-3 knows facts no single person does. But the gap is still huge.</li>
+      <li>Question for the room: <i>why</i> is the brain so cheap? A clue from our fly model: while it looks at one digit for 0.1 seconds, only about 11,500 of its 138,639 neurons fire even once, and in any tiny moment fewer than 1 in 1,000 are firing. Neurons only spend energy when they fire. A computer chip, in contrast, does every multiplication at every step, even when nothing changes. We come back to this on the "how the model works" slide.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 3. Digitized fly brains ============================ -->
+<section class="slide s-tools" data-title="Digitized fly brains">
+  <header><h1>A whole fly brain, mapped and simulated</h1></header>
+  <div class="body wide">
+    <div>
+      <div class="pipe">
+        <a class="card" href="https://flywire.ai/" target="_blank" rel="noopener">
+          <svg class="ico" viewBox="0 0 120 50" aria-hidden="true">
+            <g fill="none" stroke="#4fc3f7" stroke-width="1.6" opacity=".9"><path d="M10 25 C30 5 50 45 70 20 S100 30 112 12"/><path d="M8 38 C30 30 55 10 75 34 S100 40 114 30"/><path d="M14 10 C40 20 60 40 88 8"/></g>
+            <g fill="#e6e8ec"><circle cx="10" cy="25" r="3"/><circle cx="70" cy="20" r="3"/><circle cx="75" cy="34" r="3"/><circle cx="112" cy="12" r="3"/><circle cx="14" cy="10" r="3"/><circle cx="88" cy="8" r="3"/></g>
+          </svg>
+          <div class="tag">The map · 2024</div>
+          <h3>FlyWire</h3>
+          <p>A fly brain was cut into <b>7,062 ultra-thin slices</b>, each photographed with an electron microscope. Then every neuron and every connection was traced: <b>who is connected to whom</b>.</p>
+          <p class="like">Like a map of every road in a city.</p>
+          <div class="num-line">~139,000 neurons · ~50 million connections</div>
+          <div class="links"><span>flywire.ai ↗</span></div>
+        </a>
+        <div class="arrow">→</div>
+        <div class="card">
+          <svg class="ico" viewBox="0 0 120 50" aria-hidden="true">
+            <path d="M4 40 L20 40 L28 30 L34 36 L40 22 L44 40 L46 6 L49 44 L52 40 L66 40 L72 28 L78 34 L83 18 L86 40 L88 6 L91 44 L94 40 L116 40" fill="none" stroke="#5be3a0" stroke-width="2" stroke-linejoin="round"/>
+            <line x1="4" x2="116" y1="16" y2="16" stroke="#8b93a1" stroke-dasharray="3 3"/>
+          </svg>
+          <div class="tag">The simulation · 2024</div>
+          <h3>Shiu et al. brain model</h3>
+          <p>Simple rules for how each neuron sends signals, run on top of the FlyWire map.</p>
+          <p class="like">Like simulating the traffic on that road map.</p>
+          <div class="num-line">9 in 10 of its predictions matched real flies</div>
+          <div class="links"><a href="https://www.nature.com/articles/s41586-024-07763-9" target="_blank" rel="noopener">paper ↗</a>
+            <a href="https://github.com/eonsystemspbc/fly-brain" target="_blank" rel="noopener" class="nowrap">github: eonsystemspbc/fly-brain</a></div>
+        </div>
+        <div class="arrow">→</div>
+        <a class="card" href="https://neuromechfly.org/" target="_blank" rel="noopener">
+          <svg class="ico" viewBox="0 0 120 50" aria-hidden="true">
+            <g fill="none" stroke="#ff6b6b" stroke-width="2" stroke-linecap="round">
+              <path d="M52 22 L38 12 L30 18"/><path d="M50 27 L36 30 L28 40"/><path d="M58 30 L52 42 L46 46"/>
+              <path d="M68 22 L82 12 L90 18"/><path d="M70 27 L84 30 L92 40"/><path d="M62 30 L68 42 L74 46"/>
+            </g>
+            <ellipse cx="60" cy="24" rx="9" ry="12" fill="#e6e8ec"/><circle cx="60" cy="9" r="5" fill="#e6e8ec"/>
+            <ellipse cx="45" cy="26" rx="14" ry="5" fill="#8b93a1" opacity=".5" transform="rotate(-20 45 26)"/><ellipse cx="75" cy="26" rx="14" ry="5" fill="#8b93a1" opacity=".5" transform="rotate(20 75 26)"/>
+          </svg>
+          <div class="tag">The body</div>
+          <h3>NeuroMechFly</h3>
+          <p>A virtual fly body with legs, wings and real physics, which brain signals can move.</p>
+          <p class="like">Like a video-game character, steered by the brain.</p>
+          <div class="links"><span>neuromechfly.org ↗</span></div>
+        </a>
+      </div>
+      <div class="s3-bottom">
+        <a class="card" href="https://research.google/blog/a-connectomics-milestone-mapping-the-complete-male-fruit-fly-brain/" target="_blank" rel="noopener">
+          <div class="tag">Also new · 2026</div>
+          <h3>Google &amp; Janelia: the whole nervous system of a male fly</h3>
+          <p>Brain <b>plus</b> the nerve cord that runs down the body to the legs (the fly's "spinal cord"): <b>166,000+ neurons</b>. A map only, not yet a simulation.</p>
+          <div class="links"><span>research.google ↗</span></div>
+        </a>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li>Three pieces work together today: a <b>map</b>, a <b>simulation</b> that runs on the map, and a <b>body</b>.</li>
+      <li><b>FlyWire = the map.</b> Scientists took the brain of one adult female fruit fly and cut it into 7,062 slices, each only about 40 nanometres thick, over 1,000 times thinner than a hair (the FAFB dataset, Zheng et al., Cell 2018). An electron microscope photographed every slice (about 21 million images). Then AI (from Princeton) plus hundreds of volunteers and scientists traced every neuron through all the slices and found every connection (Dorkenwald et al. and Schlegel et al., Nature 2024). Result: 139,255 neurons, about 54.5 million synapses (connection points), more than 8,400 cell types. Our files are version 783: 138,639 neurons and 15.1 million neuron-to-neuron links. Think of it as a road map: it tells you which streets exist and which connect, but not where the cars are going.</li>
+      <li><b>Shiu et al. = the simulation.</b> They gave every neuron simple rules ("add up incoming signals, fire when you reach a threshold") and let signals flow along the FlyWire map. Like simulating traffic on the road map. Only one number was tuned by hand: how strong one connection point is. It predicted which neurons make a fly start eating sugar or clean its antennae, and 91% of 164 predictions were then confirmed in real flies (Nature 2024). They used an older map version (v630); the open-source code we build on (github: eonsystemspbc/fly-brain) uses v783.</li>
+      <li><b>NeuroMechFly = the body.</b> A virtual fly with legs, joints and wings in a physics engine (EPFL, Nature Methods 2022 and 2024). Brain signals can move it, like a video-game character. We use it on the gesture slide.</li>
+      <li><b>The newest map</b> (Google Research + HHMI Janelia + Cambridge, Cell, September 2026): the whole nervous system of a male fly: brain, the parts behind the eyes and the nerve cord that runs to the legs. More than 166,000 neurons and 125 million synapses. Google's AI did the tracing. It's only a map so far, but it will let future models connect the brain all the way to the legs. (Fun fact: Google did not trace FlyWire; Princeton did.)</li>
+      <li>What we add today: showing pictures to the fly's eyes, reading what its neurons do, and running everything right in your phone's browser.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 3b. Videos ============================ -->
+<!-- The iframes are created when this slide is shown and removed when it is left (see "video slide" in the script). -->
+<section class="slide s-video" data-title="Fly models in action">
+  <header><h1>Fly models in action</h1></header>
+  <div class="body wide">
+    <div class="phones">
+      <figure class="phone" data-yt="1wq4LkElo7E" style="margin:0">
+        <div class="screen"><div class="vfb">The video needs internet.<a href="https://youtube.com/shorts/1wq4LkElo7E" target="_blank" rel="noopener">Watch on YouTube ↗</a></div></div>
+        <figcaption class="cap" data-title="Someone trained the fly to solve rubiks cube… is there anything this little guy can't do?"><a href="https://youtube.com/shorts/1wq4LkElo7E" target="_blank" rel="noopener">PUBITY._ on YouTube ↗</a></figcaption>
+      </figure>
+      <figure class="phone" data-yt="5o54KIytVBU" style="margin:0">
+        <div class="screen"><div class="vfb">The video needs internet.<a href="https://youtube.com/shorts/5o54KIytVBU" target="_blank" rel="noopener">Watch on YouTube ↗</a></div></div>
+        <figcaption class="cap" data-title="Fly Brain Learns to Parallel Park"><a href="https://youtube.com/shorts/5o54KIytVBU" target="_blank" rel="noopener">AI QuickCast on YouTube ↗</a></figcaption>
+      </figure>
+    </div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li>Two short clips people have posted online about fly brain and body models. They play muted and on a loop; just let them run for 20–30 seconds.</li>
+      <li>Titles (from YouTube): left, "Someone trained the fly to solve rubiks cube… is there anything this little guy can't do?" (channel PUBITY._); right, "Fly Brain Learns to Parallel Park" (channel AI QuickCast).</li>
+      <li>Ask the room: what do you think is real here, and what is hype? Short videos love big claims. Keep that question in mind: in the next slides we'll look at what the real tools can and can't do, and you'll run the brain yourself.</li>
+      <li>Watch both clips before class so you can say in one sentence what each one actually shows.</li>
+      <li>If there's no internet, the boxes show a "Watch on YouTube" link instead.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 4. Neuron ============================ -->
+<section class="slide" data-title="The neuron">
+  <header><h1>A neuron is an electrical gate</h1></header>
+  <div class="body wide">
+    <div class="vis demo-wrap" data-mod="neuron" data-fn="neuronDemo" data-fallback="neuron"><div class="demo-host"></div></div>
+  </div>
+  <aside class="notes">
+    <p>Say these out loud (they used to be on the slide):</p>
+    <ul>
+      <li><b>Inputs charge it up.</b> Signals coming in raise the neuron's voltage; on its own the voltage slowly leaks back down.</li>
+      <li><b>Threshold → spike.</b> If the voltage crosses a line (the threshold), the neuron fires a spike: all or nothing, and always the same size.</li>
+      <li><b>Stronger input = more spikes per second</b>, not bigger spikes.</li>
+      <li><b>So the message is in <i>when</i> and <i>how often</i> a neuron fires.</b></li>
+    </ul>
+    <p>Background:</p>
+    <ul>
+      <li>Picture a leaky bucket: input pours water in, a small hole lets it leak out. When the water reaches the rim (the threshold), the neuron fires a spike and the bucket is emptied (reset).</li>
+      <li>A real spike is about 100 millivolts tall and lasts 1–2 milliseconds, every single time. So the size of a spike tells you nothing; only the timing and the count do.</li>
+      <li>Brighter light or a harder touch → more spikes per second. After each spike the neuron needs a short rest (the refractory period), which sets a speed limit on how fast it can fire.</li>
+      <li>In the demo: turn the input up and watch the firing get faster; a weak input never reaches the threshold at all.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 4b. Model (how neurons talk; comes before the circuit) ============================ -->
+<section class="slide" data-title="How the model works">
+  <header><h1>How the brain model works</h1></header>
+  <div class="body thin">
+    <div class="text">
+      <ul class="pts">
+        <li>Each <b>neuron</b> adds up its inputs, slowly leaks, and <b>fires</b> when it reaches a threshold. Then it rests a moment.</li>
+        <li>Each <b>connection</b>: strength from the wiring map, <b style="color:var(--c-central)">excite (+)</b> or <b style="color:var(--c-dn)">inhibit (−)</b>, arrives after a tiny delay.</li>
+        <li>Only neurons that fire do any work. That's why it runs on a phone.</li>
+      </ul>
+    </div>
+    <div class="vis demo-wrap" data-mod="neuron" data-fn="synapseDemo" data-fallback="app"><div class="demo-host"></div></div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li>We just saw one neuron. Now: how do neurons talk to each other? Next slide we'll wire many of them into a full circuit, from the eyes to the muscles.</li>
+      <li>This is exactly the model from Shiu et al. 2024, with the same rules and numbers. Scientists call it a "leaky integrate-and-fire" model: <i>integrate</i> = add up the inputs, <i>leaky</i> = the charge slowly drains away, <i>fire</i> = spike at the threshold. It's the leaky bucket from the previous slide.</li>
+      <li>In the demo: fire the exciting neuron and watch the receiving neuron's voltage jump up a little after a tiny delay; fire the inhibiting one and the voltage is pushed down. Fire the exciting one several times quickly and the receiver reaches the threshold and fires.</li>
+      <li>The numbers, if anyone asks: a resting neuron sits at −52 millivolts and drains back there in about 20 milliseconds. At −45 millivolts it fires, drops back to −52 and must rest for 2.2 milliseconds. Each incoming signal fades away over about 5 milliseconds.</li>
+      <li>Connection strength = how many connection points (synapses) the two neurons share × plus or minus (exciting or inhibiting, from the chemical the sender uses) × 0.275 millivolts. That 0.275 is the only number the scientists tuned. A signal takes 1.8 milliseconds to arrive.</li>
+      <li>Input: we pick some neurons (for example the eye cells) and make them fire randomly at a chosen speed. Output: we can listen to any neuron we like.</li>
+      <li>The computer moves forward in steps of 0.1 milliseconds. Remember the energy slide: at any moment only a tiny fraction of neurons fire. So in each step we only process the connections of the neurons that just fired and skip everything else. That's why 0.1 seconds of fly brain takes only about 0.4 seconds in a laptop browser, and it matches the scientists' original code spike for spike.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 5. Circuits ============================ -->
+<section class="slide" data-title="Circuits">
+  <header><h1>Neurons wire up into circuits</h1></header>
+  <div class="body thin">
+    <div class="text">
+      <ul class="pts">
+        <li><b>Sense</b> → <b>decide</b> → <b>move</b>.</li>
+        <li>A connection can <b style="color:var(--c-central)">excite</b> (push the next neuron to fire) or <b style="color:var(--c-dn)">inhibit</b> (hold it back).</li>
+        <li>Something rushes at the fly → a <b>"looming detector"</b> fires → the <b>"giant fiber"</b>, the brain's fastest wire to the legs → the fly <b>jumps away</b>.</li>
+        <li>Two mirror-image halves, <b>left</b> and <b>right</b>, joined by a <b>crossing link</b>. <b style="color:var(--c-dn)">Brake</b> neurons hold the signal back.</li>
+      </ul>
+    </div>
+    <div class="vis demo-wrap" data-mod="neuron" data-fn="circuitDemo" data-fallback="circuit"><div class="demo-host"></div></div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li>On the previous slide we saw how two neurons talk. Now the whole cycle: every nervous system does the same basic loop, <b>sense → decide → move</b>. Sensor neurons feel or see something, "interneurons" in the middle process it, and motor neurons tell the muscles what to do.</li>
+      <li>The demo shows both halves of the brain, mirror images of each other: each eye feeds its own detectors and its own giant fiber, plus a weaker crossing link to the other side. "Brake" neurons are inhibitory: when they fire, they push the giant fiber's voltage down. Try switching the brakes off, or cutting the left–right link, and watch how the firing changes.</li>
+      <li>Connections come in two kinds. Exciting ones push the next neuron toward firing; inhibiting ones hold it back. Which kind it is depends on the chemical messenger (neurotransmitter) the sending neuron uses. In the fly model, acetylcholine excites; GABA and glutamate inhibit.</li>
+      <li><b>The escape jump</b> (why it's so hard to swat a fly): when something grows fast in the fly's view, like a hand or a fly swatter, special "looming detector" neurons fire. Their scientific names are LPLC2 and LC4. They drive the "giant fiber" (DNp01), a very thick, very fast neuron running from the brain toward the legs. It triggers the jump within a few thousandths of a second.</li>
+      <li>We tested this in our simulation. Switch on the looming detectors and the giant fiber fires 170–190 times per second, while the walking and turning neurons stay quiet.</li>
+      <li>Show it to the right eye only: the left giant fiber fires 100 times per second, the right one 190. Cut every link between the left and right half of the brain and the left fiber drops to 0. So the left fiber was getting its signal from the other side of the brain.</li>
+      <li>Nobody programmed this in. It comes straight out of the wiring map.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 6. Brain ============================ -->
+<section class="slide" data-title="The Drosophila brain">
+  <header><h1>The <i>Drosophila</i> brain: who does what</h1></header>
+  <div class="body">
+    <div class="text">
+      <p class="key">Over half the brain is for <em>seeing</em>.</p>
+      <ul class="fn-list">
+        <li style="--c:var(--c-optic)"><i></i><div><b>Optic lobe</b> <span>seeing (lamina, medulla, lobula, lobula plate)</span></div></li>
+        <li style="--c:var(--c-vpn)"><i></i><div><b>Visual projection neurons</b> <span>carry detected features (motion, looming) to the central brain</span></div></li>
+        <li style="--c:var(--c-central)"><i></i><div><b>Mushroom body</b> <span>learning and memory</span></div></li>
+        <li style="--c:var(--c-central)"><i></i><div><b>Central complex</b> <span>inner compass, navigation</span></div></li>
+        <li style="--c:var(--c-central)"><i></i><div><b>Lateral horn</b> <span>inborn reactions to smells</span></div></li>
+        <li style="--c:var(--c-central)"><i></i><div><b>Antennal lobe</b> <span>first stop for smells from the antennae</span></div></li>
+        <li style="--c:var(--c-central)"><i></i><div><b>SEZ</b> <span>taste and feeding</span></div></li>
+        <li style="--c:var(--c-dn)"><i></i><div><b>Descending neurons</b> <span>wires from the brain to the body</span></div></li>
+      </ul>
+    </div>
+    <div class="viscol">
+      <div class="vis demo-wrap" data-mod="brain" data-fn="brainExplorer" data-fallback="app" data-hide-on-ready="#regbar, #reglegend"><div class="demo-host"></div></div>
+      <div class="regbar" id="regbar"></div>
+      <div class="reglegend" id="reglegend"></div>
+    </div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li>This is the real map. Every dot is one neuron, sitting exactly where it is in the FlyWire brain. Drag to spin it, scroll to zoom. The whole brain is smaller than a poppy seed.</li>
+      <li>More than half of all the neurons are for seeing: flies live by their eyes. The neurons in the two big side parts (the optic lobes) process the image in layers. Their scientific names are lamina → medulla → lobula and lobula plate; the lobula plate is all about motion.</li>
+      <li>Visual projection neurons are feature detectors: each kind looks for one thing, like an object coming closer (the looming detectors from the circuit slide), and sends the result to the centre of the brain.</li>
+      <li>The centre of the brain: the mushroom body learns and remembers (a later slide shows how); the central complex is the inner compass for finding the way; the lateral horn holds inborn reactions to smells ("rotten = go away"); the antennal lobe is the first stop for smell; the taste centre (its scientific name is SEZ, the subesophageal zone) decides whether to eat.</li>
+      <li>Descending neurons: only about 1,300 cells carry <i>every</i> command from the brain down to the body. It's a bottleneck, like a narrow neck, and it's exactly what we read on the gesture slide.</li>
+      <li>This slide uses the scientific names. Other slides use plain names for the same parts: Eye cells = eye input (photoreceptors and lamina); Seeing = optic lobe; Vision messengers = visual projection neurons; Centre of the brain = central brain (mushroom body, central complex, lateral horn, antennal lobe, SEZ); Wires to the body = descending neurons.</li>
+      <li>Counts in our model: eye input (the cells we stimulate) 18,266; optic lobe 69,846; visual projection 8,038; central brain 32,379; descending 1,299; other 8,811. Total 138,639.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 8. Reservoir ============================ -->
+<section class="slide" data-title="Reservoir computing">
+  <header><h1>Using the fly brain as a neural network</h1></header>
+  <div class="body">
+    <div class="text">
+      <p class="key">The fly brain is <em>never trained</em>. Only a tiny "reader" on top learns.</p>
+      <ul class="pts">
+        <li>Like guessing which stone was thrown into a pond from the <b>ripples</b>: the pond never learns, only the guesser does.</li>
+        <li>A digit is shown to the fly's eyes: brighter pixel → that eye cell fires faster (up to <b>500 times a second</b>), for <b>0.1 s</b>.</li>
+        <li>We <b>count how often each neuron fired</b>. The reader (a simple pattern-matcher) learns which counts mean which digit.</li>
+      </ul>
+      <div class="flow" style="margin-top:auto">
+        <span>image</span><em>→</em><span>eyes</span><em>→</em><span class="fixed">brain: never changed</span><em>→</em><span>firing counts</span><em>→</em><span class="trained">reader: trained</span><em>→</em><span>digit</span>
+      </div>
+    </div>
+    <div class="vis demo-wrap" data-mod="brain" data-fn="retinaDemo" data-fallback="app"><div class="demo-host"></div></div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li>The big idea is called <b>reservoir computing</b>. You take something big and complicated that you don't change (here: the fly brain) and let it turn the input into a rich pattern of activity. Then a very simple model learns to read that pattern. Pond analogy: throw a stone in, look at the ripples, guess the stone. The pond never learns anything; only the guesser does.</li>
+      <li>The "reader" is a logistic regression: the simplest kind of trainable classifier. It gives each neuron's count a weight and adds them up, one score per digit; the highest score wins. We train one reader per brain region, so we can ask which region "knows" the digit.</li>
+      <li>How the picture gets into the fly: the eye cells (in the lamina, the first layer behind the eye) lie on a curved sheet. We flatten that sheet and lay the 28×28-pixel digit on top. Each eye cell fires randomly, faster for brighter pixels, up to 500 times a second, for 100 milliseconds (0.1 s). Both eyes see the same digit.</li>
+      <li>500 times a second is faster than real eye cells. We need a strong input because the model has no background activity and the first eye layer is only partly mapped, so a weak signal would die out before it reaches the deep parts of the brain.</li>
+      <li>Fair-play rule: the eye cells we stimulate directly are <i>not</i> given to the readers. So a reader can only recognise the digit if the information really travelled through the brain's connections.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 9. MNIST ============================ -->
+<section class="slide" data-title="MNIST">
+  <header><h1>Can a fly read handwritten digits?</h1></header>
+  <div class="body">
+    <div class="text">
+      <p style="margin:0"><a href="https://huggingface.co/datasets/ylecun/mnist" target="_blank" rel="noopener">MNIST</a>: a famous collection of <b>70,000</b> handwritten digits (0–9), each a tiny 28×28-pixel picture.</p>
+      <p class="small muted" style="margin:0">Guess first: which part of the brain knows the digit best? Each bar: how often a reader that sees only that part gets the digit right.</p>
+      <div class="bars" style="margin-top:0.3em">
+        <div class="brow" style="--k:0;--c:#5d6470"><div class="lab">Raw pixels (no brain)</div><div class="track"><i data-w="87.9"></i><span class="chance"></span></div><div class="val">87.9%</div></div>
+        <div class="brow" style="--k:1;--c:var(--c-eye)"><div class="lab">Eye input</div><div class="track"><i data-w="89.9"></i><span class="chance"></span></div><div class="val">89.9%</div></div>
+        <div class="brow" style="--k:2;--c:var(--c-optic)"><div class="lab">Optic lobe</div><div class="track"><i data-w="90.9"></i><span class="chance"></span></div><div class="val">90.9%</div></div>
+        <div class="brow" style="--k:3;--c:var(--c-vpn)"><div class="lab">Visual projection neurons</div><div class="track"><i data-w="86.7"></i><span class="chance"></span></div><div class="val">86.7%</div></div>
+        <div class="brow" style="--k:4;--c:var(--c-central)"><div class="lab">Central brain</div><div class="track"><i data-w="63.6"></i><span class="chance"></span></div><div class="val">63.6%</div></div>
+        <div class="brow" style="--k:5;--c:var(--c-dn)"><div class="lab">Descending neurons</div><div class="track"><i data-w="62.2"></i><span class="chance"></span></div><div class="val">62.2%</div></div>
+        <div class="brow total" style="--k:6;--c:#e6e8ec"><div class="lab">Whole brain</div><div class="track"><i data-w="91.1"></i><span class="chance"></span></div><div class="val">91.1%</div></div>
+        <div class="legend"><span>learned from 3,000 digits, tested on 1,000 new ones · dashed line = blind guessing (10%)</span></div>
+      </div>
+    </div>
+    <div class="vis demo-wrap" data-mod="brain" data-fn="mnistDemo" data-fallback="app"><div class="demo-host"></div></div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li>MNIST is the "hello world" of machine learning: 60,000 practice digits and 10,000 test digits, each 28×28 pixels in grey (LeCun et al.). We used 3,000 to teach the readers and 1,000 new ones to test them, because simulating the brain is the slow part.</li>
+      <li>Before showing the bars, ask: which part of the brain will know the digit best? The eyes? The deep centre? The wires to the body?</li>
+      <li>Results: the reader looking at just the pixels, with no brain at all, gets 87.9%. Eye cells 89.9%, seeing (optic lobe) 90.9%, vision messengers (visual projection neurons) 86.7%, centre of the brain (central brain) 63.6%, wires to the body (descending neurons) 62.2%, whole brain 91.1%. Blind guessing would get 10%.</li>
+      <li>The whole brain beats raw pixels by about 3 points. That's the usual small boost you get from passing data through a big, fixed, messy network.</li>
+      <li>The descending neurons are at least 4 connections away from the eye and still get 62%: information about the digit reaches the commands that go to the body.</li>
+      <li>Live demo: draw a digit or press "sample". It runs on this laptop's own copy of the brain, and the same works on your phones.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 10. Gestures ============================ -->
+<section class="slide" data-title="Gesture recognition">
+  <header><h1>Gesture recognition</h1></header>
+  <div class="body wide">
+    <div class="gwave">
+      <div class="gwave-media">
+        <!-- fly-wave.gif is rendered separately; until it exists the placeholder shows, and the deck retries each time the slide is entered -->
+        <img id="fly-wave" src="/static/slides/fly-wave.gif" alt="The NeuroMechFly fly waving hello with its front leg" hidden>
+        <div class="gwave-ph" id="fly-wave-ph">🪰 The waving-fly animation will appear here.</div>
+      </div>
+      <div class="gwave-foot">
+        <p class="key" style="font-size:1.1em">Your gesture → the fly's brain → the fly's body</p>
+        <a class="btn" href="/#camera" target="_blank">Open the app's camera ↗</a>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li>The animation: the virtual fly body (NeuroMechFly) waving hello with its front leg. This is what you'll make it do with your own hands.</li>
+      <li>The full path, step by step (it used to be drawn on the slide): <b>webcam</b> (you make a gesture) → <b>edges only</b> (like the fly's first eye cells, 48×36 pixels) → <b>fly eyes</b> (both eyes see it) → <b>fly brain</b> (runs for 0.05 s) → <b>descending neurons</b> (the wires from brain to body) → <b>reader</b> (trained on your gestures) → <b>NeuroMechFly</b> (the body moves).</li>
+      <li>10 moves to choose from: rest, right front leg up, left front leg up, both front legs up, wings out, flap wings, middle legs out, hind legs out, antennae up, wiggle antennae.</li>
+      <li>Now the whole journey, from a camera all the way to the fly's muscles. Each webcam picture is turned into "edges only": every pixel is compared with its neighbours, roughly what the fly's first eye cells (the lamina) report. It's shrunk to 48×36 pixels and shown to both eyes.</li>
+      <li>The brain then runs for 50 milliseconds (0.05 s) per picture, right on your device. We only listen to the ~1,300 descending neurons, the wires that carry commands from the brain to the body.</li>
+      <li>A simple reader (the same kind of logistic regression as for the digits; it trains on the server in a few seconds) turns how often each of those neurons fired into one of 10 moves, and the NeuroMechFly body does that move. Any gesture can mean any move: everyone invents their own.</li>
+      <li>Class model: the gestures the teacher records on the server computer are everyone's starting point. You can record your own gestures and press Train.</li>
+      <li>Be honest about what this is: we never change the brain's wiring, but the link "this gesture → that leg" is learned by the reader. Real flies don't react to hands like this.</li>
+      <li>The camera only works with the https address from the QR code. Phones without a camera can tap a move under the fly to try it.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 11. Learning ============================ -->
+<section class="slide s-learn" data-title="How a fly learns">
+  <header><h1>How a fly learns what to like</h1></header>
+  <div class="body">
+    <div class="text">
+      <ul class="pts">
+        <li>Smell + <b style="color:var(--c-central)">sugar</b> at the same time → the fly learns to <b>like</b> that smell.</li>
+        <li>Smell + <b style="color:var(--c-dn)">shock</b> → it learns to <b>avoid</b> it.</li>
+        <li>Both use <b>dopamine</b>, sent by different neurons.</li>
+      </ul>
+    </div>
+    <div class="vis demo-wrap" data-mod="learning" data-fn="learningDiagram" data-fallback="learning"><div class="demo-host"></div></div>
+  </div>
+  <aside class="notes">
+    <ul>
+      <li><b>Start with a question:</b> "Have you ever felt sick after some food and then couldn't stand its smell?" Flies do the same thing, and we know exactly which neurons do it.</li>
+      <li><b>Where it happens:</b> a part of the fly brain called the <i>mushroom body</i> (it really looks a bit like a mushroom). In our fly's wiring map (FlyWire, Schlegel et al., Nature 2024) it has 5,177 smell neurons (<i>Kenyon cells</i>), 96 output neurons (<i>MBONs</i>, 35 types) and 331 dopamine neurons: 307 "reward" ones (<i>PAM</i>), 16 "punishment" ones (<i>PPL1</i>) and 8 others (<i>PPL2</i>). It is split into 15 little zones (<i>compartments</i>), each with its own dopamine neurons and output neurons (Aso et al., eLife 2014).</li>
+      <li><b>Smell neurons:</b> each smell switches on only a small group, about 5–10% of them, like a barcode for that smell (Lin et al., Nat Neurosci 2014; Honegger et al., J Neurosci 2011). In the diagram there are 40 dots and 5 light up per smell (more than in reality, so you can see them). One dot is shared by banana and vinegar.</li>
+      <li><b>Output neurons vote:</b> some say "go toward", some say "go away". Switch one on artificially and the fly walks toward or away (Aso et al., eLife 2014). On screen, "go toward" is <i>MBON-γ1pedc</i> and "go away" is <i>MBON-γ5β′2a</i> (Perisse et al., Neuron 2016; Owald et al., Neuron 2015).</li>
+      <li><b>The learning rule:</b> if dopamine arrives <i>while</i> a smell's neurons are active, their connections in that zone get <b>weaker</b>. Only those connections, only in that zone, and only if the smell came first. Scientists measured this directly in the fly brain (Hige et al., Neuron 2015).</li>
+      <li><b>The twist:</b> learning works by <i>removing</i> a vote. Shock → punishment dopamine (<i>PPL1</i>) weakens the "go toward" vote → the fly avoids the smell. Sugar → reward dopamine (<i>PAM</i>) weakens the "go away" vote → the fly goes toward it.</li>
+      <li><b>Same chemical, opposite meaning:</b> both use dopamine. What it means depends on which neurons send it and where. Fun fact: insects don't have cortisol. Their version of adrenaline is <i>octopamine</i>, and it also helps with reward: it switches on the reward dopamine neurons (Schwaerzel et al., J Neurosci 2003; Burke et al., Nature 2012; Liu et al., Nature 2012).</li>
+      <li><b>How scientists test it:</b> the T-maze (Tully &amp; Quinn, 1985). A group of flies smells one odor with mild shocks, then another without. Later they are put at the middle of a T-shaped tube with one smell on each side and they choose. In the lab this becomes a "memory score" (<i>performance index</i>): 0 = no memory, 1 = all flies avoid the shocked smell.</li>
+      <li><b>Light instead of sugar or shock:</b> with <i>optogenetics</i> scientists switch on the punishment dopamine neurons with light, with no real shock, and the fly still learns to avoid the smell (Claridge-Chang et al., Cell 2009). Switching on the reward neurons works instead of sugar (Liu et al. 2012; Burke et al. 2012). Each dopamine neuron type learns at its own speed and keeps memories for a different time (Aso &amp; Rubin, eLife 2016).</li>
+      <li><b>Demo:</b> vinegar + shock → Train → Test: most flies (17 of 20) choose banana. Reset. Banana + sugar → Train → Test: most choose banana again, but for the opposite reason. Try "nothing": no dopamine, no change. Train twice and the memory gets stronger. After training vinegar, banana changes a little too, because they share one smell neuron: that is why similar smells get confused.</li>
+      <li><b>Honest note:</b> this diagram is a toy (each training leaves 45% of the connection). Our whole-brain simulation has fixed wiring: its dopamine neurons are wired in (62,215 connections) but behave like ordinary fast connections, and nothing in it learns yet. A "Learning" tab that adds this rule to the app is being built next.</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 12. Wiring ============================ -->
+<section class="slide" data-title="Does the wiring matter?">
+  <header><h1>Does the wiring matter?</h1></header>
+  <div class="body">
+    <div class="text">
+      <p class="key">A <em>randomly rewired</em> brain reads digits just as well, or better.</p>
+      <ul class="pts">
+        <li>The test: scramble the map. Each neuron keeps its connections (how many, how strong, + or −), but they now go to <b>random neurons</b>.</li>
+        <li>The real wiring is specialized for <b>fly life</b>, not digits.</li>
+        <li>Where the real wiring matters: <b>escaping danger</b> (the jump circuit).</li>
+      </ul>
+    </div>
+    <div class="vis plain" style="display:flex;align-items:center">
+      <div class="bars" style="width:100%">
+        <div class="brow" style="--k:0;--c:#e6e8ec"><div class="lab">Whole brain</div><div class="track"><i data-w="91.1"></i></div><div class="val">91.1%</div></div>
+        <div class="brow" style="--k:1;--c:#e6e8ec"><div class="lab"></div><div class="track"><i class="rand" data-w="90.1"></i></div><div class="val">90.1%</div></div>
+        <div style="height:0.6em"></div>
+        <div class="brow" style="--k:2;--c:var(--c-central)"><div class="lab">Centre of the brain</div><div class="track"><i data-w="63.6"></i></div><div class="val">63.6%</div></div>
+        <div class="brow" style="--k:3;--c:var(--c-central)"><div class="lab"></div><div class="track"><i class="rand" data-w="90.8"></i></div><div class="val">90.8%</div></div>
+        <div style="height:0.6em"></div>
+        <div class="brow" style="--k:4;--c:var(--c-dn)"><div class="lab">Wires to the body</div><div class="track"><i data-w="62.2"></i></div><div class="val">62.2%</div></div>
+        <div class="brow" style="--k:5;--c:var(--c-dn)"><div class="lab"></div><div class="track"><i class="rand" data-w="87.0"></i></div><div class="val">87.0%</div></div>
+        <div class="legend" style="margin-top:0.6em"><span><i></i>real fly wiring</span><span><i class="rand"></i>randomly rewired</span></div>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><span class="opt">OPTIONAL slide</span> (skip if short on time).</p>
+    <ul>
+      <li>A control experiment, like in a science lab: change one thing and see what happens. Here we scramble the map. Every neuron keeps its outgoing connections (how many, how strong, exciting or inhibiting), but each one now goes to a random neuron. Same digits, same input to the eyes.</li>
+      <li>Whole brain: 91.1% with the real wiring vs 90.1% scrambled. With only 1,000 test digits, that's the same. Central brain 63.6% → 90.8%, descending neurons 62.2% → 87.0% when scrambled.</li>
+      <li>Why? Random wiring spreads the activity everywhere (about 57,000 neurons active instead of about 30,000). The real brain keeps most of the seeing work inside the optic lobes and only passes on selected features, like "something is coming closer".</li>
+      <li>So the real wiring isn't better at <i>digits</i>. It's specialized for what a fly needs to survive. The escape jump from the circuits slide (looming detector → giant fiber → jump) is where the real wiring clearly matters.</li>
+      <li>Discussion: what task would show that the real wiring is better? (Escaping a looming object, tasting food and starting to eat, detecting motion.)</li>
+    </ul>
+  </aside>
+</section>
+
+<!-- ============================ 13. Try it ============================ -->
+<section class="slide" data-title="Try it yourself">
+  <header><h1>Try it yourself: break the brain</h1></header>
+  <div class="body">
+    <div class="text">
+      <p class="key" style="font-size:1.1em">Every device has its <em>own</em> brain. Switching parts off ("knockouts") only affects yours.</p>
+      <ol class="ex">
+        <li><div>Switch off the <b>left "seeing" part</b>. <small>In the app: Knockouts → Optic lobe, side: left → Test on 200 digits</small></div></li>
+        <li><div><b>Split the brain</b>: cut every link between the left and right half. <small>1.8 million connections, 14.5% of all connection points</small></div></li>
+        <li><div><b>Compare</b> how many digits it gets right. Then retrain the camera reader on the broken brain.</div></li>
+      </ol>
+      <div class="join compact" style="margin-top:auto">
+        <div class="join-qr" title="Click for a big QR code"></div>
+        <div style="min-width:0"><h3>Open the app</h3><div class="join-url muted">…</div></div>
+      </div>
+    </div>
+    <div class="vis plain" style="display:flex;flex-direction:column;justify-content:center;gap:1em">
+      <h3 style="margin:0;font-size:1em">Split brain: can a reader still tell the digits?</h3>
+      <div class="bars">
+        <div class="brow" style="--k:0;--c:#e6e8ec"><div class="lab">Intact brain</div><div class="track"><i data-w="91.4"></i></div><div class="val">91.4%</div></div>
+        <div class="brow" style="--k:1;--c:var(--c-central)"><div class="lab">Split, reader retrained</div><div class="track"><i data-w="91.4"></i></div><div class="val">91.4%</div></div>
+        <div class="brow" style="--k:2;--c:var(--c-dn)"><div class="lab">Split, old reader</div><div class="track"><i data-w="78.0"></i></div><div class="val">78.0%</div></div>
+      </div>
+      <p class="muted" style="margin:0;font-size:0.82em">The information is still there; the activity patterns changed.</p>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><span class="opt">OPTIONAL slide</span> (use as the hands-on part).</p>
+    <ul>
+      <li>Every phone and laptop runs its own brain, so whatever you break stays on your device (and it's remembered there). You can't break anyone else's.</li>
+      <li>Exercise 1: open the Knockouts panel → Optic lobe, side left, 100% → Knock out → Test on 200 digits.</li>
+      <li>Exercise 2: "Split brain" cuts all 1,784,093 connections between the left and right half (14.5% of all synapses). The cut shows up as a red plane in the 3D map.</li>
+      <li>The result to talk about: a reader retrained on the split brain gets 91.4%, exactly as good as the intact brain. But a reader trained on the intact brain and then used on the split brain drops to 78.0%. So the information isn't lost; the activity patterns just look different, and the old reader is confused.</li>
+      <li>Why is it so robust? Both eyes see the same digit, so each half of the brain already gets the whole picture. A real split-brain experiment would show each eye only half the picture.</li>
+      <li>Bonus: retrain the camera reader on a broken brain and see whether your gestures still work.</li>
+    </ul>
+  </aside>
+</section>
+
+</main>
+
+<div id="foot">I Believe I Am Fly · FlyWire × Shiu et al. × NeuroMechFly</div>
+<nav id="nav" aria-label="Slide navigation">
+  <button id="b-notes" class="wide-only" title="Speaker notes (n)">notes</button>
+  <button id="b-fs" class="wide-only" title="Fullscreen (f)">⛶</button>
+  <button id="b-prev" title="Previous (←)" aria-label="Previous slide">←</button>
+  <span id="count">1 / 13</span>
+  <button id="b-next" title="Next (→, Space)" aria-label="Next slide">→</button>
+</nav>
+<div id="progress"></div>
+
+<div id="notes" aria-live="polite">
+  <div class="bar"><span id="notes-title"></span><button id="notes-pop" title="Open notes in a separate window (for a second screen)">pop out ↗</button><button id="notes-close">✕</button></div>
+  <div class="notes-body" id="notes-body"></div>
+</div>
+
+<div id="presenter" hidden>
+  <div class="top">
+    <span id="p-count" class="muted num"></span><span id="p-title"></span>
+    <span id="p-timer" title="Click to reset">0:00</span>
+    <button id="p-prev">←</button><button id="p-next-b">→</button>
+  </div>
+  <div id="p-notes" class="notes-body"></div>
+  <div id="p-next"></div>
+</div>
+
+<div id="qr-big" hidden><div><div class="qr"></div><div class="u"></div><div class="muted" style="margin-top:0.4em">Same Wi-Fi · click to close</div></div></div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const slides = [...document.querySelectorAll(".slide")];
+const N = slides.length;
+const presenter = new URLSearchParams(location.search).has("presenter");
+let cur = 0; // 1-based once shown
+
+/* ---------------- demo mounting (lazy, graceful) ---------------- */
+const MODS = { neuron: "/static/slides/neuron.js", brain: "/static/slides/brain.js", learning: "/static/slides/learning.js" };
+// One module instance per file (the brain module may hold a 40 MB brain). Only a failed import is retried.
+const modCache = {};
+function loadMod(name) {
+  const c = modCache[name];
+  if (c && !c.failed) return c.p;
+  const entry = { failed: false };
+  entry.p = import(MODS[name] + (c ? `?r=${Date.now()}` : "")).catch((e) => { entry.failed = true; throw e; });
+  modCache[name] = entry;
+  return entry.p;
+}
+const safe = (fn) => { try { const r = fn(); if (r && r.catch) r.catch((e) => console.warn("demo:", e)); } catch (e) { console.warn("demo:", e); } };
+
+async function mountDemo(wrap) {
+  if (wrap._state === "mounting" || wrap._state === "ready") return;
+  wrap._state = "mounting";
+  const host = wrap.querySelector(".demo-host");
+  let status = wrap.querySelector(".demo-status");
+  if (!status) { status = document.createElement("div"); status.className = "demo-status"; wrap.appendChild(status); }
+  status.textContent = "demo loading…"; status.hidden = false;
+  try {
+    const mod = await loadMod(wrap.dataset.mod);
+    const fn = mod[wrap.dataset.fn];
+    if (typeof fn !== "function") throw new Error(`${wrap.dataset.fn}() not found in ${wrap.dataset.mod}.js`);
+    host.replaceChildren(); host.hidden = false;
+    let h = await fn(host);
+    if (!h || typeof h.start !== "function") h = { start() {}, stop() {}, ...(h || {}) };
+    wrap._h = h; wrap._state = "ready";
+    status.hidden = true;
+    const fb = wrap.querySelector(".demo-fallback"); if (fb) fb.remove();
+    if (wrap.dataset.hideOnReady) document.querySelectorAll(wrap.dataset.hideOnReady).forEach((e) => (e.hidden = true));
+    if (wrap.closest(".slide").classList.contains("active")) { safe(() => h.start()); wrap._running = true; }
+  } catch (e) {
+    console.warn(`demo ${wrap.dataset.mod}.${wrap.dataset.fn} unavailable:`, e);
+    wrap._state = "failed"; status.hidden = true;
+    host.replaceChildren();
+    if (wrap.hasAttribute("data-optional")) { wrap.hidden = true; return; }
+    if (!wrap.querySelector(".demo-fallback")) wrap.appendChild(fallback(wrap.dataset.fallback));
+  }
+}
+function enterSlide(s) {
+  s.querySelectorAll(".demo-wrap").forEach((w) => {
+    if (w._state === "ready") { if (!w._running) { safe(() => w._h.start()); w._running = true; } }
+    else mountDemo(w);
+  });
+  s.dispatchEvent(new Event("enter"));
+}
+function leaveSlide(s) {
+  s.querySelectorAll(".demo-wrap").forEach((w) => { if (w._state === "ready" && w._running) { safe(() => w._h.stop()); w._running = false; } });
+  s.dispatchEvent(new Event("leave"));
+}
+
+function fallback(kind) {
+  const d = document.createElement("div"); d.className = "demo-fallback";
+  const why = `<div class="why">Live demo not available here. <a href="/" target="_blank">Open the app ↗</a></div>`;
+  if (kind === "neuron") d.innerHTML = lifSVG() + why;
+  else if (kind === "circuit") d.innerHTML = circuitSVG() + why;
+  else if (kind === "learning") d.innerHTML = learningSVG() + `<div class="why">Interactive diagram not available here.</div>`;
+  else d.innerHTML = `<div style="font-size:1.1em;color:var(--text)">This demo runs in the app.</div>` + why;
+  return d;
+}
+// Static fallback: an LIF trace for weak / medium / strong input.
+function lifSVG() {
+  const W = 900, H = 320;
+  const Y = (v) => 240 - ((v + 60) / 20) * 200;
+  let v = -52, ref = 0, pts = [], spikes = [];
+  const dt = 0.1, T = 300; // ms
+  for (let t = 0, i = 0; t < T; t += dt, i++) {
+    const I = t < 100 ? 5 : t < 200 ? 9 : 16; // mV drive
+    if (ref > 0) { ref -= dt; v = -52; }
+    else { v += dt / 20 * (-(v + 52) + I); if (v >= -45) { spikes.push(t); v = -52; ref = 2.2; } }
+    if (i % 5 === 0) pts.push([20 + (t / T) * (W - 40), v]);
+  }
+  let d = "";
+  for (const [x, vv] of pts) d += (d ? "L" : "M") + x.toFixed(1) + " " + Y(vv).toFixed(1);
+  const sp = spikes.map((t) => { const x = 20 + (t / T) * (W - 40); return `<line x1="${x}" x2="${x}" y1="${Y(-45)}" y2="22" stroke="#f5c542" stroke-width="2.5"/>`; }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}">
+    <line x1="20" x2="${W - 20}" y1="${Y(-45)}" y2="${Y(-45)}" stroke="#ff6b6b" stroke-dasharray="6 6"/>
+    <text x="24" y="${Y(-45) - 10}" fill="#ff6b6b" font-size="18">threshold −45 mV</text>
+    <line x1="20" x2="${W - 20}" y1="${Y(-52)}" y2="${Y(-52)}" stroke="#3a4150"/>
+    <text x="${W - 22}" y="${Y(-52) + 24}" fill="#8b93a1" font-size="18" text-anchor="end">rest −52 mV</text>
+    <path d="${d}" fill="none" stroke="#5be3a0" stroke-width="2.5" stroke-linejoin="round"/>${sp}
+    ${["weak input: no spikes", "medium: a few", "strong: many"].map((s, i) => `<text x="${20 + (i + 0.5) * (W - 40) / 3}" y="${H - 20}" fill="#8b93a1" font-size="20" text-anchor="middle">${s}</text>`).join("")}
+  </svg>`;
+}
+function circuitSVG() {
+  const node = (x, y, c, t) => `<circle cx="${x}" cy="${y}" r="32" fill="${c}" fill-opacity=".18" stroke="${c}" stroke-width="3"/><text x="${x}" y="${y + 6}" fill="#e6e8ec" font-size="17" text-anchor="middle" font-weight="600">${t}</text>`;
+  const arr = (x1, y1, x2, y2, c, dash) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="3" ${dash ? 'stroke-dasharray="7 6" opacity=".8"' : ""} marker-end="url(#ah)"/>`;
+  const lab = (x, y, t, a = "middle") => `<text x="${x}" y="${y}" fill="#8b93a1" font-size="17" text-anchor="${a}">${t}</text>`;
+  return `<svg viewBox="0 0 900 430"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8b93a1"/></marker></defs>
+    ${lab(150, 30, "looming detectors")}${lab(500, 30, "giant fibers (DNp01)")}${lab(800, 30, "muscles")}
+    ${lab(40, 145, "left eye", "start")}${lab(40, 315, "right eye", "start")}
+    ${arr(182, 95, 464, 120, "#5be3a0")}${arr(182, 185, 464, 132, "#5be3a0")}${arr(182, 255, 464, 300, "#5be3a0")}${arr(182, 345, 464, 312, "#5be3a0")}
+    ${arr(178, 200, 468, 288, "#5be3a0", 1)}${arr(178, 240, 468, 145, "#5be3a0", 1)}
+    ${arr(532, 128, 762, 205, "#ff6b6b")}${arr(532, 302, 762, 225, "#ff6b6b")}
+    ${node(150, 90, "#b388ff", "LPLC2")}${node(150, 180, "#b388ff", "LC4")}${node(150, 260, "#b388ff", "LPLC2")}${node(150, 350, "#b388ff", "LC4")}
+    ${node(500, 125, "#ff6b6b", "GF L")}${node(500, 305, "#ff6b6b", "GF R")}${node(800, 215, "#f5c542", "jump")}
+    ${lab(330, 420, "dashed: links between the two halves of the brain")}
+  </svg>`;
+}
+// Static fallback for the learning slide: odor → Kenyon cells → two compartments, each with its dopamine and output neuron.
+function learningSVG() {
+  const t = (x, y, s, c = "#8b93a1", w = 500, a = "middle") => `<text x="${x}" y="${y}" fill="${c}" font-size="19" font-weight="${w}" text-anchor="${a}">${s}</text>`;
+  const kc = [...Array(40)].map((_, k) => `<circle cx="${150 + (k % 5) * 22}" cy="${130 + Math.floor(k / 5) * 26}" r="7" fill="${[6, 17, 21, 28, 38].includes(k) ? "#4fc3f7" : "#2f3744"}"/>`).join("");
+  const box = (x, dan, dc, role, mb) => `<rect x="${x}" y="110" width="220" height="220" rx="12" fill="#1a1e26" stroke="${dc}" stroke-opacity=".6"/>
+    <circle cx="${x + 110}" cy="55" r="22" fill="${dc}" fill-opacity=".3" stroke="${dc}" stroke-width="3"/>${t(x + 110, 22, dan, dc, 700)}
+    <line x1="${x + 110}" y1="77" x2="${x + 110}" y2="110" stroke="${dc}" stroke-width="3"/>
+    <circle cx="${x + 110}" cy="378" r="22" fill="#b388ff" fill-opacity=".3" stroke="#b388ff" stroke-width="3"/>
+    <line x1="${x + 110}" y1="330" x2="${x + 110}" y2="356" stroke="#b388ff" stroke-width="3"/>${t(x + 110, 425, role, "#e6e8ec", 650)}`;
+  return `<svg viewBox="0 0 900 440">${t(70, 225, "smell", "#e6e8ec", 650)}<path d="M100 220 H135" stroke="#8b93a1" stroke-width="2"/>
+    ${kc}${t(194, 105, "smell neurons", "#4fc3f7", 650)}
+    <g stroke="#262b35" stroke-width="2">${[...Array(8)].map((_, r) => `<line x1="245" x2="830" y1="${130 + r * 26}" y2="${130 + r * 26}"/>`).join("")}</g>
+    ${box(330, "punishment dopamine", "#ff6b6b", "go toward", "")}${box(600, "reward dopamine", "#5be3a0", "go away", "")}
+  </svg>`;
+}
+
+/* ---------------- navigation ---------------- */
+const bc = "BroadcastChannel" in window ? new BroadcastChannel("iamfly-deck") : null;
+function show(n, { fromHash = false, remote = false } = {}) {
+  n = Math.max(1, Math.min(N, n | 0 || 1));
+  if (n === cur) return;
+  const prev = cur; cur = n;
+  slides.forEach((s, i) => {
+    s.classList.toggle("active", i === n - 1);
+    s.classList.toggle("before", i < n - 1); s.classList.toggle("after", i > n - 1);
+    s.setAttribute("aria-hidden", i === n - 1 ? "false" : "true");
+  });
+  $("count").textContent = `${n} / ${N}`;
+  $("progress").style.width = `${(n / N) * 100}%`;
+  renderNotes();
+  if (!fromHash) {
+    if (remote || presenter) history.replaceState(null, "", "#" + n);
+    else location.hash = String(n);
+  }
+  if (!remote && bc) bc.postMessage({ n });
+  if (presenter) return;
+  if (prev) leaveSlide(slides[prev - 1]);
+  const s = slides[n - 1]; s.scrollTop = 0;
+  enterSlide(s);
+}
+const next = () => show(cur + 1), prevS = () => show(cur - 1);
+const hashN = () => parseInt(location.hash.slice(1), 10) || 1;
+addEventListener("hashchange", () => show(hashN(), { fromHash: true }));
+if (bc) bc.onmessage = (e) => { if (e.data && e.data.n) show(e.data.n, { remote: true }); };
+
+function toggleFS() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else document.documentElement.requestFullscreen?.().catch(() => {});
+}
+function toggleNotes(on) {
+  const el = $("notes"); const v = on ?? !el.classList.contains("show");
+  el.classList.toggle("show", v); $("b-notes").classList.toggle("on", v);
+}
+function renderNotes() {
+  const s = slides[cur - 1]; const a = s.querySelector(".notes");
+  const html = a ? a.innerHTML : "<p class='muted'>No notes.</p>";
+  $("notes-title").textContent = `Speaker notes · ${cur} / ${N} · ${s.dataset.title}`;
+  $("notes-body").innerHTML = html;
+  if (presenter) {
+    $("p-count").textContent = `${cur} / ${N}`;
+    $("p-title").textContent = s.querySelector("h1")?.textContent.replace(/\s+/g, " ").trim() || s.dataset.title;
+    $("p-notes").innerHTML = html;
+    const nx = slides[cur];
+    $("p-next").textContent = nx ? `Next: ${nx.dataset.title}` : "Last slide";
+  }
+}
+
+addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (t && t.closest && t.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']")) return;
+  const k = e.key;
+  if (k === "ArrowRight" || k === "PageDown" || (k === " " && !e.shiftKey)) { e.preventDefault(); next(); }
+  else if (k === "ArrowLeft" || k === "PageUp" || (k === " " && e.shiftKey)) { e.preventDefault(); prevS(); }
+  else if (k === "Home") { e.preventDefault(); show(1); }
+  else if (k === "End") { e.preventDefault(); show(N); }
+  else if (k === "f" || k === "F") toggleFS();
+  else if ((k === "n" || k === "N") && !presenter) toggleNotes();
+  else if (k === "q" || k === "Q") bigQR(!!$("qr-big").hidden);
+  else if (k === "Escape") { bigQR(false); toggleNotes(false); }
+});
+$("b-next").onclick = next; $("b-prev").onclick = prevS;
+$("b-fs").onclick = toggleFS; $("b-notes").onclick = () => toggleNotes();
+$("notes-close").onclick = () => toggleNotes(false);
+$("notes-pop").onclick = () => { window.open(`${location.pathname}?presenter#${cur}`, "iamfly-notes", "width=980,height=720"); toggleNotes(false); };
+
+// Touch swipe (ignored when it starts inside a demo, which may use drags itself).
+let tx = null, ty = 0;
+addEventListener("touchstart", (e) => {
+  if (e.touches.length !== 1 || e.target.closest(".demo-host, canvas, input, .chart")) { tx = null; return; }
+  tx = e.touches[0].clientX; ty = e.touches[0].clientY;
+}, { passive: true });
+addEventListener("touchend", (e) => {
+  if (tx === null) return;
+  const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty; tx = null;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > 1.6 * Math.abs(dy)) (dx < 0 ? next : prevS)();
+}, { passive: true });
+
+/* ---------------- presenter window ---------------- */
+if (presenter) {
+  $("deck").hidden = true; $("nav").hidden = true; $("foot").hidden = true; $("notes").hidden = true; $("presenter").hidden = false;
+  document.title = "Notes · I Believe I Am Fly";
+  let t0 = Date.now();
+  const tick = () => { const s = Math.floor((Date.now() - t0) / 1000); $("p-timer").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+  setInterval(tick, 1000); $("p-timer").onclick = () => { t0 = Date.now(); tick(); };
+  $("p-prev").onclick = prevS; $("p-next-b").onclick = next;
+}
+
+/* ---------------- join box: QR + address ---------------- */
+let NET = null;
+function bigQR(on) {
+  if (on && !(NET && NET.shared)) return;
+  $("qr-big").hidden = !on;
+}
+$("qr-big").onclick = () => bigQR(false);
+document.querySelectorAll(".join-qr").forEach((q) => (q.onclick = () => bigQR(true)));
+if (!presenter) fetch("/api/network").then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((d) => {
+  NET = d;
+  if (!d.shared) {
+    document.querySelectorAll(".join-qr").forEach((q) => (q.hidden = true));
+    document.querySelectorAll(".join-url").forEach((u) => (u.textContent = d.reason || "Not shared on the network."));
+    return;
+  }
+  document.querySelectorAll(".join-qr").forEach((q) => (q.innerHTML = d.qr_svg));
+  document.querySelectorAll(".join-url").forEach((u) => { u.innerHTML = ""; const a = document.createElement("a"); a.href = d.url; a.target = "_blank";
+    a.textContent = d.url; a.style.color = "inherit"; a.style.textDecoration = "none"; u.appendChild(a); u.classList.remove("muted"); });
+  $("qr-big").querySelector(".qr").innerHTML = d.qr_svg; $("qr-big").querySelector(".u").textContent = d.url;
+}).catch(() => {
+  document.querySelectorAll(".join-qr").forEach((q) => (q.hidden = true));
+  document.querySelectorAll(".join-url").forEach((u) => { u.innerHTML = `<a href="/">${location.host}/</a>`; });
+});
+
+/* ---------------- slide 2: log-scale energy chart ---------------- */
+(function energy() {
+  // Values are in teaspoons of sugar (data-t); one gridline per factor of 10.
+  const rows = [...document.querySelectorAll("#energy .erow")];
+  const vals = rows.map((r) => parseFloat(r.dataset.t)).filter((v) => v > 0).map(Math.log10);
+  const lo = Math.floor(Math.min(...vals)) - 1, hi = Math.ceil(Math.max(...vals));
+  const dec = hi - lo;
+  const pos = (lg) => ((lg - lo) / dec) * 100;
+  rows.forEach((r, k) => {
+    const tr = r.querySelector(".etrack"); tr.style.setProperty("--dec", dec); tr.style.setProperty("--k", k);
+    tr.querySelector("i").style.setProperty("--k", k); tr.querySelector("b").style.setProperty("--k", k);
+    const v = parseFloat(r.dataset.t);
+    if (!(v > 0)) { tr.classList.add("unknown"); r.querySelector("i").dataset.w = 0; return; }
+    const p = pos(Math.log10(v));
+    r.querySelector("i").dataset.w = p;
+    const b = r.querySelector("b");
+    if (p > 70) { b.style.right = `${100 - p}%`; b.style.paddingRight = "0.6em"; b.style.color = "#120a0a"; b.style.fontWeight = 700; }
+    else b.style.left = `${p}%`;
+  });
+  const units = { "-4": "1/10,000", "-2": "1/100", 0: "1 tsp", 2: "100", 4: "10,000", 6: "1 million", 8: "100 million" };
+  const ticks = document.querySelector("#energy .ticks");
+  for (let e = lo; e <= hi; e++) if (units[e]) {
+    const s = document.createElement("span"); s.style.left = pos(e) + "%"; s.textContent = units[e];
+    if (![-4, 0, 8].includes(e)) s.className = "minor"; // hidden on phones
+    if (pos(e) > 97) s.style.transform = "translateX(-88%)";
+    ticks.appendChild(s);
+  }
+})();
+// Set bar widths when a slide enters (CSS keeps them at 0 while hidden, so they grow each time).
+slides.forEach((s) => s.addEventListener("enter", () => {
+  s.querySelectorAll("[data-w]").forEach((i) => { i.style.width = "0"; });
+  requestAnimationFrame(() => requestAnimationFrame(() => s.querySelectorAll("[data-w]").forEach((i) => (i.style.width = i.dataset.w + "%"))));
+}));
+
+/* ---------------- slide 6: region bar ---------------- */
+(function regions() {
+  const R = [["Eye input", 18266, "--c-eye"], ["Optic lobe", 69846, "--c-optic"], ["Visual projection", 8038, "--c-vpn"],
+             ["Central brain", 32379, "--c-central"], ["Descending", 1299, "--c-dn"], ["Other", 8811, "--c-other"]];
+  const tot = R.reduce((a, r) => a + r[1], 0);
+  $("regbar").innerHTML = R.map(([n, c, v]) => `<div title="${n}: ${c.toLocaleString("en")}" style="--c:var(${v});flex:${c}"></div>`).join("");
+  $("reglegend").innerHTML = R.map(([n, c, v]) => `<span style="--c:var(${v})"><i></i>${n} <b>${c.toLocaleString("en")}</b></span>`).join("") +
+    `<span>total <b>${tot.toLocaleString("en")}</b></span>`;
+})();
+
+/* ---------------- slide 10: small generated icons ---------------- */
+(function icons() {
+  if (!$("contrast-ico")) return; // the pipeline icons were replaced by the waving-fly GIF
+  // local contrast: a checker of grey levels
+  let s = "";
+  for (let y = 0; y < 6; y++) for (let x = 0; x < 8; x++) {
+    const v = Math.abs(Math.sin(x * 1.7 + y * 0.9) * Math.cos(y * 1.3 - x * 0.4));
+    const g = Math.round(40 + 200 * (v > 0.55 ? 1 : v * 0.5));
+    s += `<rect x="${12 + x * 7}" y="${4 + y * 7}" width="6.4" height="6.4" fill="rgb(${g},${g},${g})"/>`;
+  }
+  $("contrast-ico").innerHTML = s;
+  // eyes: two hex clusters
+  let e = "";
+  for (const cx of [22, 58]) for (let r = -2; r <= 2; r++) for (let c = -2; c <= 2; c++) {
+    if (Math.abs(r) + Math.abs(c) > 3) continue;
+    const x = cx + c * 5 + (r & 1) * 2.5, y = 25 + r * 4.4;
+    e += `<circle cx="${x}" cy="${y}" r="2.1" fill="#f5c542" opacity="${0.45 + 0.55 * ((r * 3 + c * 7 + 9) % 4 === 0)}"/>`;
+  }
+  $("eye-ico").innerHTML = e;
+  // brain: dots in region colours
+  let b = ""; const rnd = mulberry(7);
+  for (let i = 0; i < 110; i++) {
+    const side = rnd() < 0.5 ? -1 : 1, part = rnd();
+    let x, y, c;
+    if (part < 0.45) { x = 40 + side * (20 + rnd() * 9); y = 10 + rnd() * 30; c = "#4fc3f7"; }
+    else if (part < 0.85) { const a = rnd() * 6.283, r = Math.sqrt(rnd()); x = 40 + Math.cos(a) * r * 13; y = 25 + Math.sin(a) * r * 14; c = "#5be3a0"; }
+    else { x = 40 + side * (13 + rnd() * 5); y = 14 + rnd() * 22; c = "#b388ff"; }
+    b += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.4" fill="${c}"/>`;
+  }
+  $("brain-ico").innerHTML = b;
+})();
+function mulberry(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+/* ---------------- slide 1: animated spiking "brain" ---------------- */
+(function titleBrain() {
+  const cv = $("title-canvas"), ctx = cv.getContext("2d"), slide = slides[0];
+  const rnd = mulberry(11), P = [];
+  // [cx, cy, rx, ry, count, colour, onset (s), strength] in a front view: eyes at the edges, central brain in the middle
+  const parts = [
+    [0, 0.02, 0.33, 0.4, 900, "#5be3a0", 0.45, 0.25], [-0.6, 0, 0.16, 0.44, 800, "#4fc3f7", 0.12, 0.7], [0.6, 0, 0.16, 0.44, 800, "#4fc3f7", 0.12, 0.7],
+    [-0.86, 0, 0.045, 0.42, 300, "#f5c542", 0, 1], [0.86, 0, 0.045, 0.42, 300, "#f5c542", 0, 1],
+    [-0.41, -0.05, 0.05, 0.28, 140, "#b388ff", 0.3, 0.5], [0.41, -0.05, 0.05, 0.28, 140, "#b388ff", 0.3, 0.5],
+    [0, 0.42, 0.07, 0.1, 90, "#ff6b6b", 0.6, 0.25], [0, 0, 0.95, 0.55, 220, "#8a9099", 0.5, 0.08],
+  ];
+  for (const [cx, cy, rx, ry, n, c, on, st] of parts) for (let i = 0; i < n; i++) {
+    const a = rnd() * 6.283, r = Math.sqrt(rnd());
+    P.push({ x: cx + Math.cos(a) * r * rx, y: cy + Math.sin(a) * r * ry, c, on, st, g: 0 });
+  }
+  let W = 0, H = 0, dpr = 1, raf = 0, t0 = performance.now();
+  function size() {
+    const r = cv.getBoundingClientRect(); dpr = Math.min(2, devicePixelRatio || 1);
+    W = r.width; H = r.height; cv.width = Math.max(1, W * dpr); cv.height = Math.max(1, H * dpr);
+  }
+  new ResizeObserver(size).observe(cv);
+  function frame(now) {
+    raf = requestAnimationFrame(frame);
+    const t = ((now - t0) / 1000) % 2.6; // a new "digit" every 2.6 s
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    const s = Math.min(W / 2.05, H / 1.3), ox = W / 2, oy = H / 2 - 0.02 * s, d = Math.max(1.3, s / 260);
+    for (const p of P) {
+      const dt = t - p.on, env = dt > 0 && dt < 0.9 ? Math.sin((dt / 0.9) * Math.PI) : 0;
+      if (Math.random() < 0.004 + env * p.st * 0.09) p.g = 1;
+      const x = ox + p.x * s, y = oy + p.y * s;
+      ctx.globalAlpha = 0.16; ctx.fillStyle = p.c; ctx.fillRect(x - d / 2, y - d / 2, d, d);
+      if (p.g > 0.03) { ctx.globalAlpha = p.g; const q = d * (1.6 + p.g * 1.4); ctx.fillRect(x - q / 2, y - q / 2, q, q); p.g *= 0.86; }
+    }
+    ctx.globalAlpha = 1;
+  }
+  slide.addEventListener("enter", () => { if (!raf) { size(); raf = requestAnimationFrame(frame); } });
+  slide.addEventListener("leave", () => { cancelAnimationFrame(raf); raf = 0; });
+})();
+
+/* ---------------- gesture slide: waving-fly GIF (may not exist yet) ---------------- */
+(function flyWave() {
+  const img = $("fly-wave"), ph = $("fly-wave-ph");
+  if (!img) return;
+  const base = img.getAttribute("src");
+  let ok = false;
+  img.addEventListener("load", () => { ok = true; img.hidden = false; ph.hidden = true; });
+  img.addEventListener("error", () => { ok = false; img.hidden = true; ph.hidden = false; });
+  if (img.complete && img.naturalWidth > 0) { ok = true; img.hidden = false; ph.hidden = true; } // loaded before this script ran
+  // If the file was missing at page load, try again every time the slide is shown.
+  img.closest(".slide").addEventListener("enter", () => { if (!ok) img.src = `${base}?t=${Date.now()}`; });
+})();
+
+/* ---------------- video slide: YouTube Shorts only while visible ---------------- */
+slides.forEach((s) => {
+  const phones = [...s.querySelectorAll(".phone[data-yt]")];
+  if (!phones.length) return;
+  s.addEventListener("enter", () => {
+    if (navigator.onLine === false) return; // keep the "watch on YouTube" fallback
+    for (const p of phones) {
+      const scr = p.querySelector(".screen");
+      if (scr.querySelector("iframe")) continue;
+      const id = p.dataset.yt, f = document.createElement("iframe");
+      f.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}&controls=0&playsinline=1&rel=0&modestbranding=1`;
+      f.title = p.querySelector(".cap").dataset.title; // accessible name for the player
+      f.allow = "autoplay; encrypted-media; picture-in-picture";
+      f.referrerPolicy = "strict-origin-when-cross-origin";
+      scr.appendChild(f);
+    }
+  });
+  s.addEventListener("leave", () => phones.forEach((p) => p.querySelector(".screen iframe")?.remove()));
+});
+
+show(hashN(), { fromHash: true });
+</script>
+</body>
+</html>
