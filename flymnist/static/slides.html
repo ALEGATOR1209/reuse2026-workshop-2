@@ -696,7 +696,7 @@
     <div class="gwave">
       <div class="gwave-media">
         <!-- fly-wave.gif is rendered separately; until it exists the placeholder shows, and the deck retries each time the slide is entered -->
-        <img id="fly-wave" src="/static/slides/fly-wave.gif" alt="The NeuroMechFly fly waving hello with its front leg" hidden>
+        <img id="fly-wave" data-src="slides/fly-wave.gif" alt="The NeuroMechFly fly waving hello with its front leg" hidden>
         <div class="gwave-ph" id="fly-wave-ph">🪰 The waving-fly animation will appear here.</div>
       </div>
       <div class="gwave-foot">
@@ -861,10 +861,15 @@ const $ = (id) => document.getElementById(id);
 const slides = [...document.querySelectorAll(".slide")];
 const N = slides.length;
 const presenter = new URLSearchParams(location.search).has("presenter");
+// Where the app's files are: /static/ on the server (this page is /slides or /static/slides.html),
+// static/ next to the app in the static student site (this page is <site>/static/slides.html).
+const STATIC_DIR = new URL(/\/static\/[^/]*$/.test(location.pathname) ? "./" : "static/", location.href);
+const APP_URL = new URL("../", STATIC_DIR).href;
+document.querySelectorAll('a[href="/"], a[href^="/#"]').forEach((a) => (a.href = APP_URL + a.getAttribute("href").slice(1)));
 let cur = 0; // 1-based once shown
 
 /* ---------------- demo mounting (lazy, graceful) ---------------- */
-const MODS = { neuron: "/static/slides/neuron.js", brain: "/static/slides/brain.js", learning: "/static/slides/learning.js" };
+const MODS = Object.fromEntries(["neuron", "brain", "learning"].map((m) => [m, new URL(`slides/${m}.js`, STATIC_DIR).href]));
 // One module instance per file (the brain module may hold a 40 MB brain). Only a failed import is retried.
 const modCache = {};
 function loadMod(name) {
@@ -918,7 +923,7 @@ function leaveSlide(s) {
 
 function fallback(kind) {
   const d = document.createElement("div"); d.className = "demo-fallback";
-  const why = `<div class="why">Live demo not available here. <a href="/" target="_blank">Open the app ↗</a></div>`;
+  const why = `<div class="why">Live demo not available here. <a href="${APP_URL}" target="_blank">Open the app ↗</a></div>`;
   if (kind === "neuron") d.innerHTML = lifSVG() + why;
   else if (kind === "circuit") d.innerHTML = circuitSVG() + why;
   else if (kind === "learning") d.innerHTML = learningSVG() + `<div class="why">Interactive diagram not available here.</div>`;
@@ -1080,20 +1085,27 @@ function bigQR(on) {
 }
 $("qr-big").onclick = () => bigQR(false);
 document.querySelectorAll(".join-qr").forEach((q) => (q.onclick = () => bigQR(true)));
-if (!presenter) fetch("/api/network").then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((d) => {
+// Server: this computer's LAN address. Static site: its published address (QR only if the build got --url).
+if (!presenter) import(new URL("api.js", STATIC_DIR).href).then((A) => A.network()).then((d) => {
   NET = d;
+  if (d.static) {   // no Wi-Fi to share: anyone with the address can open it
+    document.querySelectorAll(".join-note").forEach((e) => (e.textContent = "Opens the app and starts the ~40 MB brain download now."));
+    $("qr-big").querySelector(".muted").textContent = "click to close";
+    if (!d.shared) d = { shared: true, url: APP_URL, qr_svg: null };
+  }
   if (!d.shared) {
     document.querySelectorAll(".join-qr").forEach((q) => (q.hidden = true));
     document.querySelectorAll(".join-url").forEach((u) => (u.textContent = d.reason || "Not shared on the network."));
     return;
   }
-  document.querySelectorAll(".join-qr").forEach((q) => (q.innerHTML = d.qr_svg));
+  if (d.qr_svg) document.querySelectorAll(".join-qr").forEach((q) => (q.innerHTML = d.qr_svg));
+  else { NET = null; document.querySelectorAll(".join-qr").forEach((q) => (q.hidden = true)); }
   document.querySelectorAll(".join-url").forEach((u) => { u.innerHTML = ""; const a = document.createElement("a"); a.href = d.url; a.target = "_blank";
     a.textContent = d.url; a.style.color = "inherit"; a.style.textDecoration = "none"; u.appendChild(a); u.classList.remove("muted"); });
-  $("qr-big").querySelector(".qr").innerHTML = d.qr_svg; $("qr-big").querySelector(".u").textContent = d.url;
+  $("qr-big").querySelector(".qr").innerHTML = d.qr_svg || ""; $("qr-big").querySelector(".u").textContent = d.url;
 }).catch(() => {
   document.querySelectorAll(".join-qr").forEach((q) => (q.hidden = true));
-  document.querySelectorAll(".join-url").forEach((u) => { u.innerHTML = `<a href="/">${location.host}/</a>`; });
+  document.querySelectorAll(".join-url").forEach((u) => { u.innerHTML = `<a href="${APP_URL}">${APP_URL.replace(/^https?:\/\//, "")}</a>`; });
 });
 
 /* ---------------- slide 2: log-scale energy chart ---------------- */
@@ -1216,10 +1228,11 @@ function mulberry(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = 
 (function flyWave() {
   const img = $("fly-wave"), ph = $("fly-wave-ph");
   if (!img) return;
-  const base = img.getAttribute("src");
+  const base = new URL(img.dataset.src, STATIC_DIR).href;
   let ok = false;
   img.addEventListener("load", () => { ok = true; img.hidden = false; ph.hidden = true; });
   img.addEventListener("error", () => { ok = false; img.hidden = true; ph.hidden = false; });
+  img.src = base;
   if (img.complete && img.naturalWidth > 0) { ok = true; img.hidden = false; ph.hidden = true; } // loaded before this script ran
   // If the file was missing at page load, try again every time the slide is shown.
   img.closest(".slide").addEventListener("enter", () => { if (!ok) img.src = `${base}?t=${Date.now()}`; });

@@ -13,3 +13,7 @@ wheels/
 /data/
 
 .claude
+
+# Static student site (uv run main.py site)
+/site/
+.DS_Store

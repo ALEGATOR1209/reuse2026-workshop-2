@@ -3,8 +3,11 @@ name = "workshop-2"
 version = "0.1.0"
 description = "PoC: MNIST digit recognition with a whole-brain fruit fly connectome model"
 readme = "README.md"
+license = "GPL-2.0-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
+    "cryptography>=50.0.2",
     "fastapi>=0.162.1",
     "flygym>=2.1.1",
     "matplotlib>=3.11.2",

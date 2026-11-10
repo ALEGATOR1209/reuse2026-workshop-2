@@ -7,12 +7,17 @@ server sends the connectome once and keeps the parts that are cheap or shared: i
 preprocessing, knockout lookup, decoder training, everyone's camera recordings, and one
 simulated fly body per visitor. Visitors are told apart by a cookie; whoever uses the app
 on this computer is the teacher, whose recordings make up the class model.
+
+The camera tab has two inputs with separate recordings and decoders: camera pictures
+(/api/cam/*) and stick figures of the person's pose (/api/stick/*, flymnist/stick.py), whose
+decoders start from a pre-trained model.
 """
 
 import base64
 import gzip
 import io
 import json
+import mimetypes
 import secrets
 import socket
 import threading
@@ -42,7 +47,15 @@ from .readout import readouts_path
 from .retina import build_retina, images_to_rates
 from .sessions import _SID, SessionStore
 from .simulate import feature_path, load_features, shuffle_connectome
+from .stick import Pretrained, StickSession, landmarks_json, parse_landmarks, spec_version
+from .stick import train as stick_train
 from .webmodel import brain_file
+
+# Windows takes file types from the registry, where .js is sometimes "text/plain"; browsers
+# then refuse to run the page's JavaScript modules. Pin the types the static files need.
+for _type, _ext in [("text/javascript", ".js"), ("text/javascript", ".mjs"), ("text/css", ".css"),
+                    ("text/html", ".html"), ("image/gif", ".gif"), ("video/mp4", ".mp4")]:
+    mimetypes.add_type(_type, _ext)
 
 SID_COOKIE = "flysid"
 STATIC = Path(__file__).resolve().parent / "static"
@@ -434,8 +447,14 @@ def create_app(layer="lamina", rate_hz=500.0, duration_ms=100.0, shuffle=False, 
         s = store.get(sid(request), teacher(request))
         if s is store.cls and s.missing_counts > 0:
             raise HTTPException(409, "The class model is still being prepared. Try again in a minute.")
+        imgs, counts = parse_frames(req.images, req.counts)
+        s.add(imgs, [req.label] * len(imgs), counts)
+        return cam_status(request)
+
+    def parse_frames(images, counts_in):
+        """base64 uint8 36x48 images + sparse spike counts -> (images in [0, 1], sparse counts)."""
         imgs, rows, cols, vals = [], [], [], []
-        for k, (im, c) in enumerate(zip(req.images, req.counts)):
+        for k, (im, c) in enumerate(zip(images, counts_in)):
             a = np.frombuffer(base64.b64decode(im), np.uint8)
             if a.size != IMG_SHAPE[0] * IMG_SHAPE[1]:
                 raise HTTPException(400, "bad image size")
@@ -446,8 +465,7 @@ def create_app(layer="lamina", rate_hz=500.0, duration_ms=100.0, shuffle=False, 
                 raise HTTPException(400, "bad spike counts")
             rows.append(np.full(len(idx), k)); cols.append(idx); vals.append(val)
         counts = sp.csr_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))), shape=(len(imgs), n), dtype=np.uint8)
-        s.add(imgs, [req.label] * len(imgs), counts)
-        return cam_status(request)
+        return imgs, counts
 
     class TrainRequest(BaseModel):
         include_class: bool = True
@@ -498,6 +516,152 @@ def create_app(layer="lamina", rate_hz=500.0, duration_ms=100.0, shuffle=False, 
                              "decoders": {k: export_decoder(v) for k, v in s.models.items()}})
             exports[id(s)] = (s.version, data)
         return _gz_response(data)
+
+    # ---------------- stick figures: the camera tab's other input (flymnist/stick.py) ----------------
+    # Same flow as camera pictures, in separate sessions (data/skeleton_session.joblib for the class,
+    # data/sessions/skeleton/ for students). Out of the box everyone uses the pre-trained decoders.
+    stick_store = SessionStore(n, kind="skeleton", session_cls=StickSession, last_seen=store.last_seen)
+    pretrained = Pretrained(masks)
+    threading.Thread(target=pretrained.load, daemon=True, name="stick-pretrained").start()
+
+    def stick_in_use(req):
+        """(source, session or the pre-trained model) whose stick-figure decoders this visitor uses:
+        their own once trained, else the class's (once the teacher trained), else the pre-trained ones.
+        Decoders made for another stick-figure spec are skipped."""
+        spec = spec_version()
+        s = stick_store.get(sid(req), teacher(req))
+        if s.models and s.model_spec == spec:
+            return ("class" if teacher(req) else "own"), s
+        cls = stick_store.cls
+        if cls.models and cls.model_spec == spec:
+            return "class", cls
+        pretrained.ready.wait(60)
+        return "pretrained", pretrained
+
+    def stick_status(req):
+        s = stick_store.get(sid(req), teacher(req))
+        cls = stick_store.cls
+        spec = spec_version()
+        loading = not pretrained.ready.is_set()
+        source, used = ("pretrained", pretrained) if loading else stick_in_use(req)
+        own_old = bool(s.models) and s.model_spec != spec
+        return {"input": "stick", "classes": CAM_CLASSES, "duration_ms": CAM_MS, "image_shape": list(IMG_SHAPE),
+                "rate_hz": pretrained.rate_hz, "spec_version": spec, "teacher": teacher(req),
+                "counts": s.label_counts(len(CAM_CLASSES)), "class_counts": cls.label_counts(len(CAM_CLASSES)),
+                "stale": len(s.stale(spec)),
+                "trained": bool(used.models), "using": source, "metrics": used.metrics,
+                "decoders_version": f"{source}:{used.version}", "include_class": s.include_class,
+                "own_outdated": own_old,
+                "class_updated": bool(not teacher(req) and source == "own" and s.trained_on is not None
+                                      and s.trained_on != cls.version),
+                "class_preparing": False, "preparing": loading, "pretrained": pretrained.info(),
+                "users": store.active_users(), "bodies": bodies.stats()}
+
+    @app.get("/api/stick/status")
+    def stick_status_ep(request: Request):
+        return stick_status(request)
+
+    class StickSamples(BaseModel):
+        label: int
+        spec: int                         # stick-figure spec version the browser drew them with
+        images: list[str]                 # base64 uint8, 36 x 48 each
+        counts: list[dict]                # {"idx": base64 int32, "val": base64 uint8}: non-zero spike counts
+        landmarks: list[dict | None] = [] # {pose, hands: {left, right}, size} per frame (tracker.js)
+
+    def check_spec(spec):
+        if spec != spec_version():
+            raise HTTPException(409, f"This page draws stick figures version {spec}, the app is at version "
+                                     f"{spec_version()}: reload the page.")
+
+    @app.post("/api/stick/samples")
+    def stick_samples(req: StickSamples, request: Request):
+        """Stick-figure recordings: the drawings, their spike counts and the landmarks they were drawn from."""
+        if not 0 <= req.label < len(CAM_CLASSES):
+            raise HTTPException(400, f"label must be 0..{len(CAM_CLASSES) - 1}")
+        if len(req.images) != len(req.counts) or not req.images:
+            raise HTTPException(400, "need one spike-count entry per image")
+        if req.landmarks and len(req.landmarks) != len(req.images):
+            raise HTTPException(400, "need one landmark entry per image")
+        check_spec(req.spec)
+        try:
+            lms = [parse_landmarks(x) for x in req.landmarks] if req.landmarks else None
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, f"bad landmarks: {e}")
+        imgs, counts = parse_frames(req.images, req.counts)
+        stick_store.get(sid(request), teacher(request)).add(imgs, [req.label] * len(imgs), counts, lms, req.spec)
+        return stick_status(request)
+
+    @app.post("/api/stick/train")
+    def stick_train_ep(req: TrainRequest, request: Request):
+        """Pre-trained examples (a fixed subset) + the class's stick recordings + the visitor's own."""
+        s = stick_store.get(sid(request), teacher(request))
+        cls = stick_store.cls
+        pretrained.ready.wait(120)
+        use_class = s is not cls and req.include_class
+        parts = [cls, s] if use_class else [s]
+        prog = progress_of(session_key(request))
+        prog.start("Training the motor decoder", "Waiting for a free slot (others are training)", 1)
+        with trainers:
+            try:
+                t0 = time.time()
+                pre = pretrained if pretrained.models and pretrained.spec == spec_version() else None   # same drawing only
+                models, metrics, frames = stick_train(pre, parts, masks, prog)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            finally:
+                prog.finish()
+        s.set_models(models, metrics, trained_on=cls.version if use_class else None,
+                     include_class=req.include_class, spec=spec_version())
+        return {**stick_status(request), "frames": frames, "train_seconds": round(time.time() - t0, 1)}
+
+    @app.post("/api/stick/clear")
+    def stick_clear(request: Request):
+        """Delete this visitor's stick-figure recordings and decoders (for the teacher: the class's).
+        The pre-trained model is never touched."""
+        stick_store.get(sid(request), teacher(request)).clear()
+        bodies.set_levels(sid(request), [])
+        return stick_status(request)
+
+    @app.get("/api/stick/decoders")
+    def stick_decoders(request: Request):
+        source, s = stick_in_use(request)
+        if s is pretrained:
+            return _gz_response(pretrained.export())
+        version, data = exports.get(id(s), (None, None))
+        if version != s.version:
+            data = _gz_json({"version": f"{source}:{s.version}", "source": source,
+                             "decoders": {k: export_decoder(v) for k, v in s.models.items()}})
+            exports[id(s)] = (s.version, data)
+        return _gz_response(data)
+
+    @app.get("/api/stick/stale")
+    def stick_stale(request: Request):
+        """Recordings drawn with an older stick-figure spec, with their landmarks, for the browser to redraw."""
+        s = stick_store.get(sid(request), teacher(request))
+        spec = spec_version()
+        with s.lock:
+            frames = [{"i": i, "label": int(s.labels[i]), "landmarks": landmarks_json(s.landmarks[i])}
+                      for i in s.stale(spec)]
+        return {"spec": spec, "frames": frames}
+
+    class Redrawn(BaseModel):
+        spec: int
+        rows: list[int]
+        images: list[str]
+        counts: list[dict]
+
+    @app.post("/api/stick/redraw")
+    def stick_redraw(req: Redrawn, request: Request):
+        """Replace old-spec recordings by the browser's redrawn stick figures and their new spike counts."""
+        check_spec(req.spec)
+        if not (len(req.rows) == len(req.images) == len(req.counts)) or not req.rows:
+            raise HTTPException(400, "need one image and spike-count entry per row")
+        imgs, counts = parse_frames(req.images, req.counts)
+        try:
+            stick_store.get(sid(request), teacher(request)).replace(req.rows, imgs, counts, req.spec)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return stick_status(request)
 
     # ---------------- one fly body per visitor ----------------
     @app.get("/api/fly/model")

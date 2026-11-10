@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fly pose test</title>
+<style>
+  :root { color-scheme: dark; --bg: #0d0f13; --panel: #161a21; --text: #e6e9ef; --dim: #8b93a3; --accent: #6ea8ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  header { padding: 10px 16px; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0; }
+  header span { color: var(--dim); }
+  #views { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px; touch-action: none; }
+  #views.single { grid-template-columns: 1fr; }
+  .view { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 4 / 3; }
+  .view canvas { width: 100%; height: 100%; display: block; }
+  .view .label { position: absolute; left: 10px; top: 8px; color: var(--dim); font-size: 13px; pointer-events: none; }
+  #controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 16px; padding: 12px 16px; }
+  label.act { display: grid; grid-template-columns: 1fr 44px; gap: 2px 8px; background: var(--panel); padding: 6px 10px; border-radius: 6px; }
+  label.act input { grid-column: 1 / 3; width: 100%; accent-color: var(--accent); }
+  label.act b { font-weight: 500; } label.act i { font-style: normal; color: var(--dim); text-align: right; }
+  #bar { padding: 0 16px 16px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; color: var(--dim); }
+  button { background: var(--panel); color: var(--text); border: 1px solid #2a303b; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  @media (max-width: 700px) { #views { grid-template-columns: 1fr; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<header>
+  <h1>Fly pose test</h1>
+  <span>left: pose blending in this browser (flypose.js, no physics) · right: the server's MuJoCo physics</span>
+</header>
+<div id="views">
+  <div class="view"><canvas id="c-poser"></canvas><div class="label">pose blending (flypose.js)</div></div>
+  <div class="view" id="v-server"><canvas id="c-server"></canvas><div class="label" id="server-label">server physics</div></div>
+</div>
+<div id="controls"></div>
+<div id="bar">
+  <button id="all-off">All off</button>
+  <label><input type="checkbox" id="use-server" checked> compare with the server</label>
+  <span id="err"></span>
+</div>
+<script type="module">
+// Options: ?model=<url of the fly model> (default /api/fly/model), ?poses=<url> (default fly-poses.json),
+// ?levels=0,1,0,... (start levels), ?server=0 (no server comparison), ?t=<seconds> (freeze the clock).
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { loadPoser } from "./flypose.js";
+
+const $ = (id) => document.getElementById(id);
+const Q = new URLSearchParams(location.search);
+const decode = (b64, T) => { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new T(u.buffer); };
+
+const [model, poser] = await Promise.all([
+  fetch(Q.get("model") || "/api/fly/model").then((r) => { if (!r.ok) throw new Error(`model: ${r.status}`); return r.json(); }),
+  loadPoser(Q.get("poses") || "fly-poses.json"),
+]);
+const names = model.geoms.map((g) => g.name);
+if (names.join() !== poser.geomNames.join()) console.error("geom order differs between the model and fly-poses.json");
+
+// ---- one camera, two scenes (poser | server), drawn side by side ----
+const verts = decode(model.verts, Float32Array), faces = decode(model.faces, Uint16Array);
+const geos = model.meshes.map((x) => {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(verts.slice(x.v0 * 3, (x.v0 + x.nv) * 3), 3));
+  g.setIndex(new THREE.BufferAttribute(faces.slice(x.f0 * 3, (x.f0 + x.nf) * 3), 1));
+  g.computeVertexNormals(); return g;
+});
+const camera = new THREE.PerspectiveCamera(30, 4 / 3, 0.05, 200);
+camera.up.set(0, 0, 1);
+function makeView(canvas) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const scene = new THREE.Scene(); scene.background = new THREE.Color("#0d0f13");
+  const hemi = new THREE.HemisphereLight(0xe4ebff, 0x2a2118, 1.6); hemi.position.set(0, 0, 1); scene.add(hemi);
+  const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(4, -3, 8); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x9fb8ff, 0.9); rim.position.set(-5, 4, 3); scene.add(rim);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: "#171a20", roughness: 0.9 }));
+  floor.position.z = model.floor_z; scene.add(floor);
+  const meshes = model.geoms.map((g) => {
+    const [r, gg, b, a] = g.rgba;
+    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(r, gg, b, THREE.SRGBColorSpace),
+      roughness: 0.6, metalness: 0.05, transparent: a < 1, opacity: a, depthWrite: a >= 1, side: a < 1 ? THREE.DoubleSide : THREE.FrontSide });
+    const mesh = new THREE.Mesh(geos[g.mesh], mat); if (a < 1) mesh.renderOrder = 1; scene.add(mesh); return mesh;
+  });
+  const setPose = (a) => meshes.forEach((m, i) => { const k = i * 7; m.position.set(a[k], a[k + 1], a[k + 2]); m.quaternion.set(a[k + 4], a[k + 5], a[k + 6], a[k + 3]); });
+  return { renderer, scene, meshes, setPose, canvas };
+}
+const views = [makeView($("c-poser")), makeView($("c-server"))];
+const controls = new OrbitControls(camera, $("views"));
+controls.enableDamping = true;
+let dirty = true;
+controls.addEventListener("change", () => (dirty = true));
+new ResizeObserver(() => {
+  for (const v of views) { const w = v.canvas.clientWidth, h = v.canvas.clientHeight; if (w && h) v.renderer.setSize(w, h, false); }
+  const c = views[0].canvas; camera.aspect = c.clientWidth / c.clientHeight || 4 / 3; camera.updateProjectionMatrix(); dirty = true;
+}).observe($("views"));
+
+// ---- sliders ----
+const levels = new Array(poser.actions.length).fill(0);
+(Q.get("levels") || "").split(",").forEach((v, i) => { if (v && i < levels.length) levels[i] = Math.min(1, Math.max(0, +v || 0)); });
+$("controls").innerHTML = poser.actions.map((a, i) => i === 0 ? "" :
+  `<label class="act"><b>${a}</b><i id="lv${i}">0%</i><input type="range" min="0" max="1" step="0.01" value="${levels[i]}" data-i="${i}"></label>`).join("");
+let useServer = Q.get("server") !== "0";
+$("use-server").checked = useServer;
+function send() {
+  poser.setLevels(levels);
+  if (useServer) fetch("/api/fly/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ levels }) }).catch(() => {});
+}
+document.querySelectorAll("[data-i]").forEach((el) => (el.oninput = () => { levels[+el.dataset.i] = +el.value; send(); }));
+$("all-off").onclick = () => { levels.fill(0); document.querySelectorAll("[data-i]").forEach((el) => (el.value = 0)); send(); };
+
+// ---- server stream ----
+let es = null, serverPose = null;
+function connect() {
+  $("views").classList.toggle("single", !useServer); $("v-server").hidden = !useServer;
+  if (es) { es.close(); es = null; }
+  if (!useServer) return;
+  es = new EventSource("/api/fly/stream");
+  es.onmessage = (e) => { const o = JSON.parse(e.data); serverPose = decode(o.p, Float32Array); views[1].setPose(serverPose); dirty = true; };
+  es.onerror = () => ($("server-label").textContent = "server physics (not reachable)");
+}
+$("use-server").onchange = (e) => { useServer = e.target.checked; connect(); send(); };
+connect(); send();
+
+// ---- frame loop ----
+const t0 = performance.now(), frozen = Q.has("t") ? +Q.get("t") : null;
+let centred = false;
+function frame() {
+  const t = frozen ?? (performance.now() - t0) / 1000;
+  const { pose, levels: lv, moving } = poser.update(t);
+  if (moving) {
+    views[0].setPose(pose); dirty = true;
+    lv.forEach((v, i) => { const el = $(`lv${i}`); if (el) el.textContent = `${Math.round(v * 100)}%`; });
+  }
+  if (!centred) {   // aim at the fly once
+    const box = new THREE.Box3(); views[0].meshes.forEach((m) => box.expandByObject(m));
+    const c = box.getCenter(new THREE.Vector3()), r = box.getSize(new THREE.Vector3()).length() / 2;
+    controls.target.copy(c); camera.position.copy(c).add(new THREE.Vector3(0.72, 0.55, 0.42).setLength(r / Math.tan(THREE.MathUtils.degToRad(15)) * 1.05));
+    controls.update(); centred = true;
+  }
+  if (serverPose && moving !== undefined) {   // largest distance between the same body part in the two flies
+    let m = 0;
+    for (let i = 0; i < pose.length; i += 7) m = Math.max(m, Math.hypot(pose[i] - serverPose[i], pose[i + 1] - serverPose[i + 1], pose[i + 2] - serverPose[i + 2]));
+    $("err").textContent = `largest body-part distance poser vs server: ${(m * 1000).toFixed(1)} µm (flapping/wiggling differ in phase)`;
+  }
+  if (controls.update() || dirty) { for (const v of views) v.renderer.render(v.scene, camera); dirty = false; }
+  requestAnimationFrame(frame);
+}
+frame();
+window.poseTest = { poser, levels, views };
+</script>
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stick-figure gestures</title>
+<!-- Test page (not part of the app): camera -> MediaPipe Pose + Hands (tracker.js) -> stick figure (skeleton.js) -> this
+     device's fly brain (brain-worker.js) -> the pre-trained stick-figure decoders. Served by
+     `uv run main.py skeleton-test` (flymnist/skeleton_server.py), which provides /api/skeleton. -->
+<style>
+  :root {
+    --bg: #0b0d11; --panel: #13161c; --panel-2: #1a1e26; --line: #262b35;
+    --text: #e6e8ec; --muted: #8b93a1; --accent: #f5c542;
+    --radius: 10px;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.4; }
+  header { padding: 18px 24px 8px; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 650; }
+  .sub { color: var(--muted); font-size: 13px; max-width: 900px; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; padding: 10px 24px 28px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  h2 { font-size: 14px; margin: 0 0 10px; font-weight: 600; }
+  .cam { position: relative; }
+  video, #overlay { width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; transform: scaleX(-1); display: block; }
+  video { background: #000; }
+  #overlay { position: absolute; inset: 0; pointer-events: none; }
+  #seen { width: 100%; max-width: 384px; aspect-ratio: 4 / 3; image-rendering: pixelated; background: #000; border-radius: 6px; display: block; }
+  .note { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+  button, select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .cls { display: grid; grid-template-columns: 150px 1fr 44px; gap: 8px; align-items: center; margin: 6px 0; }
+  .bar { height: 14px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: #4fc3f7; transition: width .12s; }
+  .cls.top .bar i { background: var(--accent); }
+  .cls.top span:first-child { color: var(--accent); font-weight: 600; }
+  #status { color: var(--muted); font-size: 12.5px; min-height: 1.4em; }
+  #big { font-size: 22px; font-weight: 650; margin: 4px 0 10px; color: var(--accent); min-height: 1.4em; }
+  label { color: var(--muted); font-size: 12.5px; display: flex; gap: 6px; align-items: center; }
+  @media (max-width: 520px) { header, main { padding-left: 16px; padding-right: 16px; } .cls { grid-template-columns: 120px 1fr 40px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Stick-figure gestures</h1>
+  <div class="sub">The fly's eyes see a stick figure of your pose instead of the camera picture. A pose model in this
+    browser finds your shoulders, arms and hands; the drawing goes through the fly brain on this device; decoders
+    trained beforehand on other people's poses say which gesture it is. Try: right hand up, left hand up, both
+    hands up, a hand heart 🫶 (at your chest or in front of your face), or hands down (rest).</div>
+</header>
+<main>
+  <section class="panel">
+    <h2>Camera</h2>
+    <div class="row"><button id="start">Start camera</button><span id="status"></span></div>
+    <div class="cam"><video id="video" playsinline muted></video><canvas id="overlay"></canvas></div>
+    <div class="note" id="found">&nbsp;</div>
+    <div class="note">Shown mirrored, like a mirror. The pose model and the fly get the unmirrored picture,
+      so your right hand appears on the left of the stick figure (and its close-up in the bottom-left box).</div>
+  </section>
+  <section class="panel">
+    <h2>What the fly sees (36 × 48): body + both hands enlarged</h2>
+    <canvas id="seen" width="48" height="36"></canvas>
+    <div class="note" id="seen-note">&nbsp;</div>
+  </section>
+  <section class="panel">
+    <h2>Gesture</h2>
+    <div class="row">
+      <select id="decoder"></select>
+      <label><input type="checkbox" id="smooth" checked> average the last 3 frames</label>
+    </div>
+    <div id="big"></div>
+    <div id="classes"></div>
+    <div class="note" id="speed"></div>
+  </section>
+</main>
+<script type="module">
+import { render, H, W, SPEC_VERSION, SEGMENTS, HAND_BONES } from "./skeleton.js";
+import { createTracker } from "./tracker.js";
+const NAMES = { "descending": "descending neurons", "central brain": "central brain", "whole brain": "whole brain", "pixels": "pixels only (no brain)" };
+
+const $ = (id) => document.getElementById(id);
+const status = (s) => ($("status").textContent = s);
+let INFO = null, DEC = {}, tracker = null, running = false;
+
+function decode(b64, T) {
+  const bin = atob(b64), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return new T(u.buffer);
+}
+function prepDecoder(d) {
+  return { cols: d.cols ? decode(d.cols, Int32Array) : null, F: d.n_features, mean: decode(d.mean, Float32Array),
+           scale: decode(d.scale, Float32Array), coef: decode(d.coef, Float32Array), intercept: d.intercept, classes: d.classes };
+}
+// Same as index.html: p = softmax(coef . standardize(log1p(counts[cols]) or pixels) + intercept)
+function decoderProba(d, counts, image, nClasses) {
+  const F = d.F, z = new Float64Array(F);
+  for (let f = 0; f < F; f++) z[f] = ((d.cols ? Math.log1p(counts[d.cols[f]]) : image[f]) - d.mean[f]) / d.scale[f];
+  const K = d.coef.length / F, logit = new Float64Array(K);
+  for (let k = 0; k < K; k++) {
+    let s = d.intercept[k];
+    for (let f = 0, o = k * F; f < F; f++) s += d.coef[o + f] * z[f];
+    logit[k] = s;
+  }
+  const p = new Array(nClasses).fill(0);
+  if (K === 1) { const p1 = 1 / (1 + Math.exp(-logit[0])); p[d.classes[0]] = 1 - p1; p[d.classes[1]] = p1; return p; }
+  const mx = Math.max(...logit);
+  let sum = 0;
+  const ex = Array.from(logit, (v) => { const e = Math.exp(v - mx); sum += e; return e; });
+  d.classes.forEach((c, k) => (p[c] = ex[k] / sum));
+  return p;
+}
+
+// ---- this device's fly brain (the app's brain worker) ----
+const BR = { worker: null, ready: null, pending: new Map(), next: 1 };
+function brainInit() {
+  BR.worker = new Worker("./brain-worker.js", { type: "module" });
+  BR.ready = new Promise((resolve, reject) => {
+    BR.worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === "progress") status(`${m.cached ? "Loading" : "Downloading"} the fly brain: ${(m.loaded / 1e6).toFixed(0)} / ${(m.total / 1e6).toFixed(0)} MB`);
+      else if (m.type === "ready") resolve(m);
+      else {
+        const p = BR.pending.get(m.id);
+        if (!p) { if (m.type === "error") reject(new Error(m.message)); return; }
+        BR.pending.delete(m.id);
+        m.type === "error" ? p.reject(new Error(m.message)) : p.resolve(m);
+      }
+    };
+    BR.worker.onerror = (e) => reject(new Error(e.message || "the brain could not start"));
+  });
+  BR.worker.postMessage({ type: "load", url: INFO.model.url, gzBytes: INFO.model.bytes, rawBytes: INFO.model.raw_bytes,
+                          regionNames: INFO.region_names });
+}
+async function brainRun(image) {
+  await BR.ready;
+  const id = BR.next++, img = Float32Array.from(image);
+  return new Promise((resolve, reject) => {
+    BR.pending.set(id, { resolve, reject });
+    BR.worker.postMessage({ type: "run", id, image: img, H, W, rateHz: INFO.rate_hz, ms: INFO.duration_ms }, [img.buffer]);
+  });
+}
+
+// ---- drawing ----
+const seenCtx = $("seen").getContext("2d"), seenData = seenCtx.createImageData(W, H);
+function drawSeen(img) {
+  for (let k = 0; k < H * W; k++) {
+    const v = Math.round(img[k] * 255);
+    seenData.data.set([v, v, v, 255], k * 4);
+  }
+  seenCtx.putImageData(seenData, 0, 0);
+}
+// landmarks over the (mirrored) preview: the canvas is mirrored like the video
+function drawOverlay(r, w, h) {
+  const c = $("overlay");
+  if (c.width !== w) { c.width = w; c.height = h; }
+  const g = c.getContext("2d");
+  g.clearRect(0, 0, w, h);
+  g.lineWidth = Math.max(2, w / 200);
+  const line = (a, b, color) => { g.strokeStyle = color; g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); };
+  if (r.pose) for (const [a, b] of SEGMENTS) if (r.pose[a][2] >= 0.5 && r.pose[b][2] >= 0.5) line(r.pose[a], r.pose[b], "#4fc3f7");
+  for (const [k, color] of [["left", "#f5c542"], ["right", "#5be3a0"]]) {
+    const q = r.hands[k];
+    if (q) for (const [a, b] of HAND_BONES) line(q[a], q[b], color);
+  }
+}
+
+function showClasses(p) {
+  const shown = DEC[$("decoder").value].classes;
+  const best = shown.reduce((a, c) => (p[c] > p[a] ? c : a), shown[0]);
+  $("classes").innerHTML = shown.map((c) => `<div class="cls${c === best ? " top" : ""}"><span>${INFO.classes[c]}</span>` +
+    `<div class="bar"><i style="width:${(100 * p[c]).toFixed(0)}%"></i></div><span>${(100 * p[c]).toFixed(0)}%</span></div>`).join("");
+  $("big").textContent = p[best] >= 0.4 ? INFO.classes[best] : "…";
+}
+
+// ---- camera -> pose -> stick figure -> brain -> decoder ----
+async function loop() {
+  const video = $("video"), history = [];
+  let frames = 0, t0 = performance.now();
+  while (running) {
+    if (video.readyState < 2) { await new Promise((r) => setTimeout(r, 50)); continue; }
+    const r = tracker.detect(video, performance.now());
+    const img = render(r.pose, r.hands);
+    drawSeen(img);
+    drawOverlay(r, video.videoWidth, video.videoHeight);
+    $("seen-note").textContent = r.pose ? " " : "No person found: the fly sees nothing.";
+    $("found").textContent = r.pose ? `Hands found: your right ${r.hands.right ? "✓" : "–"}, your left ${r.hands.left ? "✓" : "–"}` : " ";
+    const b = await brainRun(img);
+    const p = decoderProba(DEC[$("decoder").value], b.counts, img, INFO.classes.length);
+    history.push(p);
+    if (history.length > 3) history.shift();
+    const shownP = $("smooth").checked ? p.map((_, c) => history.reduce((s, h) => s + h[c], 0) / history.length) : p;
+    showClasses(shownP);
+    frames++;
+    const el = performance.now() - t0;
+    if (el > 1000) { $("speed").textContent = `${(frames / el * 1000).toFixed(1)} frames per second (brain: ${(b.seconds * 1000).toFixed(0)} ms per frame)`; frames = 0; t0 = performance.now(); }
+  }
+}
+
+async function start() {
+  $("start").disabled = true;
+  try {
+    status("Starting the camera…");
+    const video = $("video");
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+    await video.play();
+    status("Loading the pose and hand models…");
+    tracker = await createTracker({ hands: true });
+    status("Waiting for the fly brain…");
+    await BR.ready;
+    status("");
+    running = true;
+    loop().catch((e) => { running = false; status(`Stopped: ${e.message}`); });
+  } catch (e) {
+    status(`Could not start: ${e.message}`);
+    $("start").disabled = false;
+  }
+}
+
+async function init() {
+  const res = await fetch("/api/skeleton");
+  if (!res.ok) throw new Error("this page needs `uv run main.py skeleton-test` (it serves the decoders)");
+  INFO = await res.json();
+  const spec = INFO.meta && INFO.meta.spec_version;
+  if (spec && spec !== SPEC_VERSION) status(`Warning: the decoders were trained on stick-figure spec ${spec}, this page draws spec ${SPEC_VERSION}.`);
+  for (const [k, d] of Object.entries(INFO.decoders)) DEC[k] = prepDecoder(d);
+  const order = ["descending", "central brain", "whole brain", "pixels"].filter((k) => DEC[k]);
+  $("decoder").innerHTML = order.map((k) => {
+    const m = INFO.metrics[k], cv = m && m.cv_accuracy != null ? ` · CV ${(100 * m.cv_accuracy).toFixed(0)}%` : "";
+    return `<option value="${k}">${NAMES[k] || k}${cv}</option>`;
+  }).join("");
+  $("decoder").value = DEC["whole brain"] ? "whole brain" : order[0];
+  showClasses(new Array(INFO.classes.length).fill(0));
+  brainInit();
+  BR.ready.then(() => { if (!running) status("Fly brain ready."); }).catch((e) => status(`This device could not run the fly brain: ${e.message}`));
+  $("start").onclick = start;
+}
+init().catch((e) => status(e.message));
+</script>
+</body>
+</html>

@@ -52,11 +52,15 @@ def check_trainable(labels):
         raise ValueError("Record at least 5 frames of at least two actions first.")
 
 
-def train_decoders(images, labels, counts, masks, progress=None, task="Training the motor decoder"):
+def train_decoders(images, labels, counts, masks, progress=None, task="Training the motor decoder",
+                   sample_weight=None, groups=None, cols=None):
     """Fit one decoder per neuron group (plus a pixels-only baseline) and cross-validate it.
 
     images: (F, 36, 48) float; labels: (F,) action index; counts: sparse (F, N) spike counts;
     masks: {name: bool mask over neurons}. Returns (models, metrics).
+    Optional (stick figures, flymnist/stick.py): sample_weight per frame (fits and CV accuracy are
+    weighted), groups = blocks for the CV folds instead of the actions, cols = {name: neuron
+    indices} instead of every active neuron of each group.
     """
     y = np.asarray(labels, int)
     check_trainable(y)
@@ -65,14 +69,19 @@ def train_decoders(images, labels, counts, masks, progress=None, task="Training 
     names = list(masks) + ["pixels"]
     if progress:
         progress.start(task, "Fitting decoders (5-fold cross-validation)", len(names) * (FOLDS + 1))
-    active = np.asarray(counts.sum(0)).ravel() > 0
-    cols = {name: np.flatnonzero(m & active) for name, m in masks.items()}
+    if cols is None:
+        active = np.asarray(counts.sum(0)).ravel() > 0
+        cols = {name: np.flatnonzero(m & active) for name, m in masks.items()}
+    w = None if sample_weight is None else np.asarray(sample_weight, np.float64)
+    fit = lambda X, yy, ww: (_make_model().fit(X, yy) if ww is None
+                             else _make_model().fit(X, yy, logisticregression__sample_weight=ww))
 
     # Honest cross-validation: consecutive webcam frames are nearly identical, so each fold
     # holds out a contiguous block of every action, not random frames.
+    g = y if groups is None else np.asarray(groups)
     folds = np.zeros(len(y), int)
-    for c in np.unique(y):
-        idx = np.flatnonzero(y == c)
+    for c in np.unique(g):
+        idx = np.flatnonzero(g == c)
         folds[idx] = np.minimum(np.arange(len(idx)) * FOLDS // len(idx), FOLDS - 1)
 
     models, metrics = {}, {}
@@ -87,10 +96,11 @@ def train_decoders(images, labels, counts, masks, progress=None, task="Training 
         for k in range(FOLDS):
             tr, te = folds != k, folds == k
             if len(np.unique(y[tr])) >= 2 and te.sum() > 0:
-                correct.append((_make_model().fit(X[tr], y[tr]).predict(X[te]) == y[te]).mean())
+                ok = fit(X[tr], y[tr], None if w is None else w[tr]).predict(X[te]) == y[te]
+                correct.append(ok.mean() if w is None else np.average(ok, weights=w[te]))
             if progress:
                 progress.advance()
-        models[name] = {"model": _make_model().fit(X, y), "cols": None if name == "pixels" else cols[name]}
+        models[name] = {"model": fit(X, y, w), "cols": None if name == "pixels" else cols[name]}
         metrics[name] = {"cv_accuracy": float(np.mean(correct)) if correct else None, "neurons": int(X.shape[1])}
         if progress:
             progress.advance()

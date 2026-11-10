@@ -99,7 +99,7 @@ def run(feature_file, out_json=None):
     joblib.dump({"feature_file": feature_file.name, "n_train": n_train, "readouts": models}, readouts_path(feature_file))
     print("saved", readouts_path(feature_file))
     if out_json:
-        out_json.write_text(json.dumps({"feature_file": feature_file.name, "n_train": n_train, "n_test": n_test, "results": rows}, indent=2))
+        out_json.write_text(json.dumps({"feature_file": feature_file.name, "n_train": n_train, "n_test": n_test, "results": rows}, indent=2), encoding="utf-8")
         print("saved", out_json)
     return rows
 
@@ -144,6 +144,6 @@ def run_hemispheres(feature_file):
     out = hemispheres_path(feature_file)
     joblib.dump({"feature_file": feature_file.name, "n_train": len(ytr), "readouts": models}, out)
     out.with_suffix(".json").write_text(json.dumps({"feature_file": feature_file.name, "n_train": len(ytr),
-                                                    "n_test": len(yte), "results": rows}, indent=2, default=float))
+                                                    "n_test": len(yte), "results": rows}, indent=2, default=float), encoding="utf-8")
     print("saved", out, "and", out.with_suffix(".json"))
     return rows

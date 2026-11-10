@@ -20,6 +20,8 @@ const ORBIT_URL = "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/contr
 const THREE_ESM = "https://cdn.jsdelivr.net/npm/three@0.170.0/+esm";
 const ORBIT_ESM = "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/controls/OrbitControls.js/+esm";
 const WORKER_URL = new URL("../brain-worker.js", import.meta.url);   // = /static/brain-worker.js
+// Data comes from the server's API or, in the static student site, from exported files (see ../api.js).
+import * as A from "../api.js";
 
 const once = (fn) => { let p = null; return () => (p ||= fn()); };
 const fmt = (v) => Math.round(v).toLocaleString("en-US");
@@ -34,15 +36,9 @@ function decode(b64, T) {
 }
 function hexToRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
 
-async function getJSON(url, body) {
-  const res = await fetch(url, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || `${url}: ${res.status} ${res.statusText}`); }
-  return res.json();
-}
-
 /** /api/brain, with pos (Int16Array, 0.1 µm, -10 = unknown) and region (Uint8Array) decoded. */
 export const getBrainInfo = once(async () => {
-  const b = await getJSON("/api/brain");
+  const b = await A.brain();
   b.pos = decode(b.pos, Int16Array);
   b.region = decode(b.region, Uint8Array);
   return b;
@@ -50,8 +46,8 @@ export const getBrainInfo = once(async () => {
 
 // A trained readout as plain weights: p = softmax(W · standardize(features) + b) (copied from index.html).
 function prepDecoder(d) {
-  return { cols: d.cols ? decode(d.cols, Int32Array) : null, F: d.n_features, mean: decode(d.mean, Float32Array),
-           scale: decode(d.scale, Float32Array), coef: decode(d.coef, Float32Array), intercept: d.intercept, classes: d.classes };
+  return { cols: d.cols ? A.arr(d.cols, Int32Array) : null, F: d.n_features, mean: A.arr(d.mean, Float32Array),
+           scale: A.arr(d.scale, Float32Array), coef: A.arr(d.coef, Float32Array), intercept: d.intercept, classes: d.classes };
 }
 function decoderProba(d, counts, image, nClasses = 10) {
   const F = d.F, z = new Float64Array(F);
@@ -72,7 +68,7 @@ function decoderProba(d, counts, image, nClasses = 10) {
 }
 /** The MNIST readouts, {key: decoder}. */
 export const getReadouts = once(async () => {
-  const r = await getJSON("/api/readouts");
+  const r = await A.readouts();
   return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, prepDecoder(v)]));
 });
 /** {key: probabilities over 0-9} for every readout. */
@@ -134,8 +130,8 @@ export async function runImage(image, { ms = null, describe = true, H = 28, W = 
 /** The eye mapping: {uv, inputIdx, region, side, cellType, cellTypeNames} per input neuron. */
 export const getRetina = once(() => brainCall({ type: "retina" }));
 
-async function getSample(i) { return getJSON("/api/sample" + (i != null ? `?i=${i}` : "")); }
-async function preprocess(canvas) { return getJSON("/api/digit", { image: canvas.toDataURL("image/png") }); }
+async function getSample(i) { return A.sample(i); }
+async function preprocess(canvas) { return A.digit(canvas); }
 
 // ============================================================================================
 // Small UI helpers

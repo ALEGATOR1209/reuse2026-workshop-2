@@ -1,273 +1,205 @@
-# MNIST on a fruit fly brain (PoC)
+# I Believe I Am Fly
 
-Can a simulated *Drosophila* brain, wired exactly like the real one, recognise handwritten digits?
+A fruit fly brain, simulated neuron by neuron, that reads handwritten digits and turns your
+webcam gestures into the movements of a 3D fly.
 
-This PoC takes the whole-brain spiking model from
-[eonsystemspbc/fly-brain](https://github.com/eonsystemspbc/fly-brain)
-(138,639 neurons, 15M connections from the FlyWire connectome; LIF model of
-[Shiu et al., Nature 2024](https://www.nature.com/articles/s41586-024-07763-9)),
-shows MNIST digits to its eyes, and trains a small readout to read the digit
-from the spikes of different brain regions.
+![The simulated fly waving hello](flymnist/static/slides/fly-wave.gif)
 
-**The brain itself is never trained.** Its wiring is fixed, as in the real fly.
-Only a linear readout (logistic regression) on top is learned. This is
-*reservoir computing*: the connectome is the reservoir.
+The brain is wired exactly like a real *Drosophila* brain: 138,639 neurons and 15 million
+connections, taken from the [FlyWire](https://flywire.ai/) connectome. We never change that
+wiring. We only show the brain a picture, let its neurons fire, and train a small decoder that
+reads the answer from their activity. This trick is called **reservoir computing**.
+
+It was made for a high-school lecture: one computer runs the app, and every student's phone or
+laptop runs its own copy of the brain right in the browser. A slide deck with live demos is
+included.
+
+## What you can do
+
+- **Draw a digit** and watch it travel through the brain: every spike lights up in a 3D map of
+  all 138k neurons, and each brain region "votes" for the digit it thinks it saw.
+- **Control a fly with gestures.** Record a gesture for each fly action (raise a leg, flap the
+  wings, wiggle the antennae, ...), train, and go live: your camera feeds the fly's eyes, the brain
+  responds, and the fly moves. With the **Stick figure** input the fly sees a stick figure of your
+  pose instead of the camera picture; it works out of the box, for anyone, in any room (see below).
+- **Do brain surgery.** Silence whole regions, single cell types (`LPLC2`, `Tm*`, ...) or cut the
+  brain in half, then see what still works.
 
 ## How it works
 
 ```
-MNIST image ──► fly eye ──► 138k-neuron spiking brain ──► spike counts ──► logistic regression ──► digit
-   28x28        (retinotopic    (fixed FlyWire wiring,       per region      (the only trained part)
-                 Poisson rates)  100 ms, dt = 0.1 ms)
+camera / drawing ──► fly's eyes ──► 138k spiking neurons ──► spike counts ──► small decoder ──► digit or fly action
+                                    (real wiring, fixed)                     (the only part we train)
 ```
 
-1. **Eye mapping** ([flymnist/retina.py](flymnist/retina.py)). Neuron cell types come from the
-   public [FlyWire annotations](https://github.com/flyconnectome/flywire_annotations).
-   Each eye's visual neurons lie on a flat sheet in 3D, so they are flattened with PCA and
-   placed on the 28x28 image. Every input neuron fires Poisson spikes at
-   `pixel intensity x rate` (default 500 Hz). Both eyes see the same digit.
-   By default the image enters at the **lamina** (photoreceptors R1-6/R7/R8 + lamina cells
-   L1-L5, ~18k neurons); `--layer photoreceptors` uses photoreceptors only.
-2. **Brain simulation** ([flymnist/brain.py](flymnist/brain.py)). Same equations and parameters
-   as `code/run_pytorch.py` in fly-brain, rewritten to be event-driven (only synapses of neurons
-   that spiked are processed), which is fast on a laptop CPU (~2.5 digits/s on an M3 Max).
-   It reproduces the reference implementation spike for spike.
-3. **Readout** ([flymnist/readout.py](flymnist/readout.py)). For each region (optic lobe,
-   visual projection neurons, central brain, descending neurons, whole brain), a logistic
-   regression on `log(1 + spike count)` of that region's neurons. **The stimulated input
-   neurons are excluded**, so the digit can only be decoded if the information travelled
-   through synapses.
-4. **Controls.** Logistic regression on raw pixels (what a linear model achieves without any
-   brain), and the same brain with randomly rewired connections (`--shuffle`): every neuron
-   keeps its outputs (count, sign, strength) but they go to random targets.
+- **The brain** is the leaky integrate-and-fire model of
+  [Shiu et al., Nature 2024](https://www.nature.com/articles/s41586-024-07763-9), via
+  [eonsystemspbc/fly-brain](https://github.com/eonsystemspbc/fly-brain). There is a Python version
+  for training and a JavaScript version that runs in the browser; they produce the same spikes.
+- **The eyes:** each image is shown to the fly's visual neurons, brighter pixels making them fire
+  faster.
+- **The decoder** is a logistic regression on the spike counts of one brain region. The neurons
+  that receive the image are left out, so the answer has to travel through real synapses.
+- **The body** is [NeuroMechFly](https://neuromechfly.org/), a physics model of the fly. The
+  server simulates it with MuJoCo; the static web version animates the same poses without physics.
 
-## Run it
+## Stick-figure input
+
+The camera tab has a switch, **Camera picture | Stick figure** (stick figure is the default; the
+choice is kept per device). A camera-picture decoder only works in the room and for the people it
+was recorded with. With **Stick figure**, MediaPipe finds the
+person's shoulders, arms and hands in the browser, and the fly's eyes get a 48×36 drawing of that
+pose ([skeleton.js](flymnist/static/skeleton.js)), so background, clothes and light no longer matter.
+
+- **Out of the box** it uses decoders pre-trained on stick figures of HaGRIDv2 people
+  (`data/pretrained_skeleton.joblib`, made by `uv run main.py pretrain --step skeleton`): hands down
+  (rest), right hand up, left hand up, both hands up and a hand heart (flap wings). Press
+  **Start live**; no recording needed. Whole brain: ~98% on people it never saw (both hands must be
+  visible for the heart).
+- **Train** mixes a fixed subset of the pre-trained examples (600 per gesture) with the class's
+  stick-figure recordings and your own, your frames weighing more, so ~30 frames (one 4 s recording)
+  teach a new gesture for any action. Your own gestures work best for you (other people's carry over
+  only partly), so pick gestures that differ in arm position. Training takes ~6–15 s on the server.
+- Stick-figure recordings are kept apart from camera-picture ones: the teacher's go to
+  `data/skeleton_session.joblib`, students' to `data/sessions/skeleton/`. Each frame also keeps its
+  body landmarks, so recordings are redrawn automatically when the stick-figure drawing changes.
+- The static site ships the pre-trained decoders and a compact subset of the examples
+  (`stick-train.json`: 200 per gesture, ~2,900 neurons, a few MB) to train in the browser.
+- **Privacy:** the camera picture never leaves the device; only the drawing, its spike counts and the
+  landmarks are stored. The MediaPipe library may send anonymous usage statistics to Google.
+
+## Quick start
+
+You need [uv](https://docs.astral.sh/uv/) (it installs Python and everything else):
 
 ```bash
-uv sync
-uv run main.py download                          # ~140 MB: connectome, annotations, MNIST
-uv run main.py all --train 3000 --test 1000      # ~40 min on CPU
-uv run main.py all --train 3000 --test 1000 --shuffle   # random-wiring control
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-### Web app: draw a digit, watch the brain
+Then, in the project folder:
 
 ```bash
-uv run main.py serve        # needs the trained readouts from the step above
-# open http://127.0.0.1:8000
+uv run main.py download                       # connectome, cell types and MNIST (~140 MB)
+uv run main.py all --train 3000 --test 1000   # teach the digit decoders (~45 min on a laptop)
+uv run main.py serve                          # start the app
 ```
 
-Draw a digit (or press **MNIST sample**) and press **Run through brain** (or Enter).
-The server crops and centres your drawing the way MNIST digits were prepared; the brain then
-runs **on your own device** (100 ms of brain activity in ~0.5 s on a laptop) and the page shows:
+`serve` prints the addresses to open, for example `http://127.0.0.1:8000` on this computer and
+`https://<your IP>:8443` for other devices (the camera needs https). The page header shows a QR
+code that students can scan.
 
-- the predicted digit from each region's readout, next to the raw-pixel baseline;
-- a 3D map of all 138,639 neurons at their real FlyWire positions (drag to rotate, scroll to
-  zoom; Front/Top/Side presets, Spin). Every spike lights up, coloured by region, so you can
-  watch activity spread from the eyes into the optic lobes and further in. **Total** shows every
-  neuron that fired. The main neuropils (lamina, medulla, lobula, lobula plate, mushroom body,
-  lateral horn, antennal lobe, central complex, SEZ) are labelled at the median position of the
-  neurons that belong to them. Uses Three.js from a CDN, so the page needs internet;
-- spikes per millisecond per region, and the most active cell types (Tm1, Mi9, T1, ...).
+Already trained on another computer? Copy the files instead of retraining (see
+[Moving to another computer](#moving-to-another-computer)).
 
-Code: [flymnist/server.py](flymnist/server.py) (FastAPI) and
-[flymnist/static/index.html](flymnist/static/index.html) (one page, no build step).
-If you trained with non-default `--layer/--rate/--ms`, pass the same flags to `serve`.
+## Moving to another computer
 
-**Every visitor has their own brain.** The brain runs in the browser:
-[flymnist/static/brainsim.js](flymnist/static/brainsim.js) is the same model as `brain.py`
-(same equations, parameters and step order) in plain JavaScript, in a Web Worker
-([brain-worker.js](flymnist/static/brain-worker.js)). On first visit the page downloads the
-connectome once (~40 MB, packed by [flymnist/webmodel.py](flymnist/webmodel.py) and kept in
-the browser's cache). Checked against the Python model on 200 MNIST test digits: 175,353 vs
-175,372 spikes per digit, per-neuron correlation 0.9996, and the same readout accuracies within
-noise. Speed on an M3 Max: ~0.4 s per 100 ms digit, ~0.2 s per 50 ms camera frame; expect
-2–4× longer on phones. The server keeps what is cheap or shared: image preprocessing, knockout
-lookup, decoder training, everyone's recordings, and one fly body per visitor.
+Copy the project (without `.venv`) and these files from `data/`:
 
-**Classroom use.** `serve` listens on the local network by default and prints the address
-(e.g. `http://10.145.119.50:8000`). The page header shows the same address with a QR code;
-click it for a full-screen QR to put on a projector. Use `--host 127.0.0.1` to keep it on
-this computer only. Notes:
+| File | What it is |
+|---|---|
+| `camera_session.joblib` | the class model (the teacher's gestures) |
+| `skeleton_session.joblib`, `pretrained_skeleton.joblib` | the class's stick-figure recordings (if any) and the pre-trained stick-figure model |
+| `spikes_lamina_500Hz_100ms.readouts.joblib` | the digit decoders (needed to start) |
+| `spikes_lamina_500Hz_100ms.npz` | spike counts for **Test on 200 digits** |
+| `2025_Connectivity_783.parquet`, `2025_Completeness_783.csv`, `neuron_annotations.tsv` | the connectome and cell types |
+| `mnist/` | the digits |
 
-- Each device runs its own brain, so nobody waits for anyone else, and knockouts only affect
-  the device that made them (they are remembered on that device).
-- The **teacher** is whoever uses the app on the server computer. Their camera recordings and
-  decoder are the **class model**. Every student starts with it, can record their own gestures
-  and press **Train**; their decoder then learns from the class recordings plus their own (or only
-  their own: untick "Also learn from the class recordings"). Students are told apart by a cookie
-  and their work is saved in `data/sessions/`, so a reload or server restart keeps it.
-  On the teacher's computer, `?as=student` shows the app as a student sees it (`?as=teacher` to
-  go back).
-- Browsers only allow the webcam on `https://` pages or on `localhost`, so `serve` also listens
-  on **https://<LAN IP>:8443** with a self-signed certificate (made with openssl in `data/tls/`,
-  remade if the IP changes) and the QR code points there. Each device sees a "connection is not
-  private" warning once: Safari → *Show Details* → *visit this website*; Chrome → *Advanced* →
-  *Proceed*. `--https-port 0` turns HTTPS off.
-- macOS may ask whether Python may accept incoming connections: allow it.
-- Long jobs (training the camera decoder, testing knockouts on 200 digits) show a progress bar
-  with a time estimate (`GET /api/progress`).
+To pack them into one zip (macOS / Linux):
 
-### Knockouts
+```bash
+zip -r data/fly-transfer-$(date +%Y%m%d).zip data/camera_session.joblib \
+  data/spikes_lamina_500Hz_100ms.readouts.joblib data/spikes_lamina_500Hz_100ms.npz \
+  data/2025_Connectivity_783.parquet data/2025_Completeness_783.csv data/neuron_annotations.tsv data/mnist
+```
 
-The **Knockouts** panel (both tabs) lesions the brain:
+Unzip it in the project folder on the new computer (`tar -xf <file>.zip` on Windows) and run
+`uv run main.py serve`.
 
-- **Silence neurons.** Pick a target, a side (both / left / right) and an amount (10-100%, a random
-  but fixed subset), then press **Knock out**. Targets: whole regions (optic lobe, central brain,
-  visual projection, descending, ascending, eye input, whole brain), optic lobe neuropils (lamina,
-  medulla, lobula, lobula plate: neurons with arbors there), central structures (Kenyon cells,
-  MBONs, dopaminergic neurons, antennal lobe, lateral horn, central complex), sensory neurons, or
-  **cell types by name** with wildcards (`LPLC2, Tm*, DN*`). Rules stack and can be removed one by one.
-  A silenced neuron loses every synapse in and out, and gets no eye input, like optogenetic
-  silencing in fly-brain.
-- **Split brain.** Cuts all 1,784,093 connections between left-side and right-side neurons
-  (14.5% of synapses).
-- Silenced neurons are dark red in the 3D map and the cut is a red midline plane. The current
-  digit is re-run automatically. **Test on 200 digits** compares every readout's accuracy with the
-  intact brain on the same test digits.
+**Back up the class model** before experimenting, because **Clear recordings** on the teacher's
+computer deletes it:
 
-The readouts and the camera decoder were trained on the intact brain, so a lesion tests how
-well they still work. Retrain the camera decoder to see whether the lesioned brain still carries
-the information. Code: [flymnist/lesion.py](flymnist/lesion.py), `FlyBrain.set_lesion`.
-
-Check with the escape circuit (right-eye looming detectors stimulated): the left giant fiber
-fires at 100 Hz intact and 0 Hz with the hemispheres cut, while the right one stays at 190 Hz.
-
-#### Split brain: can each hemisphere recognise digits on its own?
-
-`uv run main.py simulate --split --train 3000 --test 1000` simulates the same digits with the
-same input spikes on a brain with all left↔right connections cut; `uv run main.py hemispheres
-[--split]` trains left-only / right-only / both readouts (saved to `*.hemispheres.joblib/json`,
-separate from the web app's readouts). Test accuracy on 1,000 digits:
-
-| Readout | Intact: left | Intact: right | Intact: both | Split: left | Split: right | Split: both |
-|---|---|---|---|---|---|---|
-| Whole brain | 91.2% | 90.6% | 91.4% | 91.0% | 90.4% | 91.4% |
-| Optic lobe | 91.0% | 90.2% | 91.1% | 91.2% | 90.1% | 91.2% |
-| Central brain | 52.4% | 53.6% | 63.6% | 55.0% | 50.9% | 67.1% |
-| Descending | 47.6% | 51.2% | 62.2% | 48.3% | 49.0% | 64.1% |
-
-Readouts trained on the **intact** brain and then applied to the split brain do drop
-(whole brain 91.4% → 78.0%, central 63.6% → 40.0%, descending 62.2% → 36.7%). That drop comes
-from the activity patterns changing, not from information being lost: readouts trained on the
-split brain are as good as on the intact brain, and each hemisphere alone is about as good as both.
-
-Both eyes see the same digit, so each half of the brain gets the whole image and the link
-between hemispheres isn't needed for this task. A real split-brain test would show each eye only
-half the image.
-
-### Camera → fly brain → fly body
-
-The **Camera → fly body** tab closes the loop with a simulated body
-([NeuroMechFly](https://neuromechfly.org/) via `flygym` 2.x, physics in MuJoCo):
-
-1. **Start camera** (the browser asks for permission; it only talks to your local server).
-2. **Record your own gesture for each fly action** you want, 4 s each (~30 frames). There are 10 actions:
-   rest, right / left / both front legs up, wings out, flap wings, middle legs out, hind legs out,
-   antennae up, wiggle antennae. Each button is the fly's action; make up any gesture for it, as
-   long as it looks different from your other gestures. Record "rest" plus at least one action.
-3. **Train**: every frame is shown to the fly's eyes (as local contrast, like lamina cells)
-   and run through the brain on your device for 50 ms; the spike counts go to the server, where
-   a logistic regression learns the gesture from the spikes of the chosen neurons (a few seconds).
-   Default: only the **descending neurons** (brain → body commands). Accuracy is cross-validated
-   on held-out stretches of each recording.
-4. **Start live**: each new frame goes through the brain on your device (~0.2 s on a laptop), the decoder
-   says which gesture it sees, and the fly does that action (an action switches on above 40%
-   confidence and is fully on at 80%).
-
-Click any action under the fly to try it without a camera (useful on students' devices).
-
-The body is a tethered NeuroMechFly (thorax held still, legs under position control; the
-model's wings and antennae have no muscles, so their angles are set directly; flapping is slowed ~70×).
-Every visitor has their own fly body on the server: one shared MuJoCo model, one state per
-visitor, stepped on 6 threads with a 0.5 ms physics step (5× flygym's default; same final poses).
-Flies standing still are not simulated. The server streams the position of every body part
-(~25 per second, server-sent events); the browser draws the fly with Three.js, so each viewer
-can rotate and zoom it independently (3/4, Front, Side, Top, Spin). Load test: 30 flies all
-flapping at once get the full 25 updates per second and use ~1.6 CPU cores of the M3 Max.
-Code: [flymnist/camera.py](flymnist/camera.py), [flymnist/sessions.py](flymnist/sessions.py)
-and [flymnist/body.py](flymnist/body.py). The class model is kept in `data/camera_session.joblib`
-and students' sessions in `data/sessions/`, until **Clear recordings**.
-
-This is a learned mapping: a real fly does not raise a leg when it sees a human hand. The
-brain's wiring is untouched; only the decoder from its neurons to the leg is trained.
-
-Options: `--layer {lamina,photoreceptors}`, `--rate` (Hz on a white pixel), `--ms`
-(how long each digit is shown), `--batch`. Spike counts are saved to `data/spikes_*.npz`
-and accuracies to `data/spikes_*.results.json`, so `uv run main.py train` can refit
-readouts without simulating again.
+```bash
+cp data/camera_session.joblib data/backups/camera_session_$(date +%Y%m%d-%H%M%S).joblib
+```
 
 ## Results
 
-3,000 training and 1,000 test digits, lamina input at 500 Hz, 100 ms per digit, M3 Max CPU
-(~45 min per run). Test accuracy of a logistic-regression readout per region (chance = 10%):
+Digit recognition, 3,000 training and 1,000 test digits (chance = 10%):
 
-| Readout from | Real fly wiring | Randomly rewired |
+| Decoder reads from | Real fly wiring | Randomly rewired brain |
 |---|---|---|
-| Raw pixels, no brain (baseline) | 87.9% | 87.9% |
-| Eye input (stimulated neurons) | 89.9% | 89.1% |
+| Raw pixels, no brain | 87.9% | 87.9% |
 | Optic lobe | 90.9% | 90.2% |
-| Visual projection neurons | 86.7% | 90.1% |
 | Central brain | 63.6% | 90.8% |
 | Descending neurons (brain → body) | 62.2% | 87.0% |
 | **Whole brain** | **91.1%** | **90.1%** |
 
-Cross-entropy loss for the real wiring (`uv run main.py train`; chance = ln 10 = 2.30):
-
-| Readout from | Active neurons | Train acc | Test acc | Train loss | Test loss |
-|---|---|---|---|---|---|
-| Raw pixels | 784 | 96.1% | 88.4% | 0.21 | 0.42 |
-| Optic lobe | 27,811 | 100% | 91.1% | 0.01 | 0.28 |
-| Visual projection | 896 | 100% | 85.7% | 0.04 | 0.44 |
-| Central brain | 1,220 | 87.7% | 63.6% | 0.53 | 1.10 |
-| Descending | 283 | 76.2% | 62.2% | 0.84 | 1.18 |
-| Whole brain | 30,305 | 100% | 91.4% | 0.01 | 0.28 |
-
-What this shows:
-
-- **The digit can be read from the fly brain**, even from its ~280 active descending neurons
-  (62%, vs 10% chance), although those are 4+ synapses away from where the image enters.
-- **The fly wiring is not a better MNIST reservoir than random wiring.** Whole-brain accuracy is
-  the same (91.1% vs 90.1%, within noise for 1,000 test digits). Deeper regions do much
-  *better* when rewired, because random wiring spreads activity everywhere (57k active neurons
-  vs 30k), while the real brain keeps most visual activity inside the optic lobes.
-- Small gain over pixels (+3 points), as expected from a big fixed nonlinear projection.
-- Readouts with many neurons overfit (train loss ~0); more training digits would help.
-
-MNIST is not something a fly needs to do, so it can't show what the wiring is good for.
-Tasks with a natural behaviour (looming → escape, taste → feeding) are better tests.
-Activating the looming detectors (LPLC2/LC4) already makes the escape neuron (giant fiber,
-DNp01) fire at 170-190 Hz in this model, while walking and turning neurons stay silent.
+- **The digit can be read from deep inside the brain**, even from the neurons that send commands
+  to the body, four or more synapses away from the eyes.
+- **The real wiring is no better at MNIST than random wiring.** The real brain keeps visual
+  activity mostly in the optic lobes, while random wiring spreads it everywhere. That makes sense:
+  reading digits isn't something a fly needs. Natural tasks show the wiring's purpose: a looming
+  shadow makes the model's escape neuron fire at ~180 Hz while walking neurons stay silent.
+- **Split brain:** cutting all left↔right connections barely matters for digits, because both
+  eyes see the whole image. It does matter for escape: a looming shadow on the right eye no longer
+  reaches the left escape neuron.
 
 ## Limitations
 
-- **Signal fades with depth.** The model has no spontaneous activity, and the lamina is only
-  partly reconstructed in FlyWire. Driving photoreceptors alone barely reaches the central brain,
-  which is why the default input also drives the lamina cells, at rates (500 Hz) well above
-  biology. Real lamina cells use graded potentials, not spikes.
-- **Approximate retinotopy.** The eye-to-image mapping uses neuron positions, not the true
-  ommatidia/column map; the medulla is curved, so coverage of the image is uneven, and the
-  optic chiasm's mirror flip is not modelled.
-- **Static images.** Flies see motion; the optic lobe is tuned to motion and the model sees a
-  frozen digit.
-- **Small data.** Simulating is the bottleneck, so only a few thousand digits are used.
+- The model has no background activity, so signals fade with depth. To reach the central brain,
+  the eyes are driven harder than in a real fly.
+- The image-to-eye mapping is approximate, and the model sees still frames, while real fly eyes
+  are tuned to motion.
+- Gestures are a learned mapping: a real fly doesn't raise a leg when it sees a hand.
+- Simulation is slow (~0.2–0.4 s per image on a laptop), so only a few thousand digits are used.
 
-## Next steps
+## Project layout
 
-- **Train the wiring, keep the topology.** Use the surrogate gradient already in the fly-brain
-  LIF (`ATan`) to learn synapse strengths while keeping which neurons connect and the signs
-  fixed (connectome-constrained learning, as in
-  [Lappalainen et al., Nature 2024](https://www.nature.com/articles/s41586-024-07939-3)).
-- **Time-resolved readout.** Spike counts in short time bins instead of one total.
-- **Behaviour as output.** Read out from a few descending neurons only, as if the fly had to
-  "answer" with an action.
-- **GPU.** On CUDA the repo's PyTorch/GeNN backends simulate much faster, which allows the
-  full 70k-digit MNIST.
+| Path | What's inside |
+|---|---|
+| [main.py](main.py) | the command line |
+| [flymnist/brain.py](flymnist/brain.py), [retina.py](flymnist/retina.py), [simulate.py](flymnist/simulate.py) | the brain, the eyes, running digits through them |
+| [flymnist/readout.py](flymnist/readout.py), [camera.py](flymnist/camera.py) | digit decoders, camera frames and gesture decoders |
+| [flymnist/stick.py](flymnist/stick.py), [skeleton.py](flymnist/skeleton.py) | the stick-figure input: drawing, pre-trained model, training |
+| [flymnist/lesion.py](flymnist/lesion.py) | knockouts |
+| [flymnist/body.py](flymnist/body.py), [poses.py](flymnist/poses.py) | the fly body (physics) and its poses for the browser |
+| [flymnist/server.py](flymnist/server.py), [sessions.py](flymnist/sessions.py) | the web server, teacher and student sessions |
+| [flymnist/site.py](flymnist/site.py) | builds the static website |
+| [flymnist/static/](flymnist/static/) | the app (`index.html`), the browser brain (`brainsim.js`), the slides (`slides.html`, `slides/`) |
+
+Commands (`uv run main.py <command>`):
+
+| Command | What it does |
+|---|---|
+| `download` | fetch the connectome, cell types and MNIST into `data/` |
+| `simulate`, `train`, `all` | run digits through the brain, train the decoders, or both (`--train`, `--test` = how many digits) |
+| `serve` | start the app (`--port`, `--https-port`, `--host 127.0.0.1` for this computer only) |
+| `site` | build the static website into `site/` |
+| `poses` | re-export the fly's poses for the browser |
+| `hemispheres` | left / right / both-hemisphere decoders (add `--split` for the cut brain) |
 
 ## Credits and license
 
-The neuron model and connectome data come from
-[eonsystemspbc/fly-brain](https://github.com/eonsystemspbc/fly-brain) (GPL-2.0-or-later),
-based on Shiu et al. (MIT). FlyWire connectome v783: Dorkenwald et al. 2024, Schlegel et al. 2024.
-Since [flymnist/brain.py](flymnist/brain.py) is adapted from GPL code, treat this project as
-GPL-2.0-or-later if you distribute it.
+- **Connectome:** FlyWire v783, Dorkenwald et al. 2024 and Schlegel et al. 2024
+  ([flywire.ai](https://flywire.ai/)), CC BY-NC 4.0.
+- **Brain model:** Shiu et al. 2024 ([code, MIT](https://github.com/philshiu/Drosophila_brain_model)),
+  via [eonsystemspbc/fly-brain](https://github.com/eonsystemspbc/fly-brain) (GPL-2.0-or-later).
+- **Fly body:** NeuroMechFly, Lobato-Rios et al. 2022 and Wang-Chen et al. 2024
+  ([flygym](https://github.com/NeLy-EPFL/flygym), Apache-2.0).
+- **Digits:** MNIST, LeCun, Cortes and Burges, CC BY-SA 3.0. **3D:** [three.js](https://threejs.org/), MIT.
+- **Gestures for the stick-figure input:** HaGRIDv2, Kapitanov et al.,
+  [arXiv:2412.01508](https://arxiv.org/abs/2412.01508), CC BY-SA 4.0 (research / non-commercial use
+  per its authors). No photos are included: only stick figures drawn from body landmarks, their spike
+  counts and decoders trained on them, shared under the same license.
+- **Pose tracking:** [MediaPipe](https://github.com/google-ai-edge/mediapipe), Google, Apache-2.0
+  (loaded from a CDN; it may send anonymous usage statistics to Google, never your pictures).
+- The slides embed two YouTube shorts, credited to their creators under each video.
+
+The same list is on the app's **Credits** page.
+
+© 2026 Oleh Kovalyshyn. This project is free software under the **GNU GPL v2.0 or later** (see
+[LICENSE](LICENSE)), provided without any warranty. Because it includes FlyWire data, which is
+licensed for non-commercial use only, the app and copies of it must stay non-commercial.

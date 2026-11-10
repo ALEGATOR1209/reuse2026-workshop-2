@@ -143,7 +143,7 @@
   .seg button + button { border-left: 1px solid var(--line); }
   .seg button.on { background: #2a2416; color: var(--accent); }
   .ko-amount { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 140px; font-size: 12.5px; color: var(--muted); }
-  .ko-amount input { flex: 1; accent-color: #ff6b6b; }
+  .ko-amount input { flex: 1; min-width: 0; accent-color: #ff6b6b; }
   .ko-amount b { color: var(--text); font-variant-numeric: tabular-nums; width: 36px; text-align: right; }
   button.danger { background: #ff6b6b; border-color: #ff6b6b; color: #1a0b0b; font-weight: 600; }
   #ko-list { display: flex; flex-direction: column; gap: 5px; margin: 12px 0 4px; }
@@ -205,6 +205,24 @@
                   grid-template-areas: "pred" "draw" "brain" "ko" "time" "stats"; }
     main.camera #fly-wrap { aspect-ratio: 1; height: auto; }
   }
+  /* Stick-figure input: short steps + a guide to the gestures the fly already knows. */
+  #cam-area:not(.stick) .stick-only { display: none; }
+  #cam-area.stick #live-block { margin-top: 8px; }
+  #cam-area.stick #live-title { display: none; }
+  .steps { margin: 0 0 10px; padding-left: 20px; font-size: 13px; line-height: 1.35; }
+  .steps li { margin: 2px 0; padding-left: 2px; }
+  .steps li::marker { color: var(--accent); font-weight: 700; }
+  .steps b { color: var(--accent); font-weight: 600; }
+  .gestures { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 5px; }
+  .gesture { display: flex; align-items: center; gap: 10px; padding: 4px 8px 4px 4px; border-radius: 8px;
+             border: 1px solid var(--line); background: var(--panel-2); transition: border-color 0.2s, background 0.2s; }
+  .gesture svg { width: 44px; height: 44px; flex: none; background: #000; border-radius: 6px; }
+  .gesture svg .b { fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+  .gesture svg .heart { fill: #ff6b8a; stroke: #fff; stroke-width: 1.4; stroke-linejoin: round; }
+  .gesture .g-you { font-size: 13px; font-weight: 600; line-height: 1.25; }
+  .gesture .g-fly { font-size: 12px; color: var(--muted); line-height: 1.25; }
+  .gesture.lit { border-color: var(--accent); background: #2a2416; box-shadow: 0 0 0 1px var(--accent) inset; }
+  .gesture.lit .g-fly { color: var(--accent); }
   #fly-full { position: absolute; right: 8px; top: 8px; padding: 4px 10px; font-size: 12.5px; background: rgba(19, 22, 28, 0.8); }
   main #fly-wrap:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; border: 0; border-radius: 0; }
 </style>
@@ -217,7 +235,8 @@
   <nav class="tabs">
     <button data-mode="draw" class="on">Draw a digit</button>
     <button data-mode="camera">Camera → fly body</button>
-    <a href="/static/slides.html" style="align-self:center;color:var(--muted);font-size:13px;padding:0 6px" title="The lecture slides">Slides</a>
+    <a href="static/slides.html" style="align-self:center;color:var(--muted);font-size:13px;padding:0 6px" title="The lecture slides">Slides</a>
+    <a href="static/credits.html" style="align-self:center;color:var(--muted);font-size:13px;padding:0 6px" title="Where the data and models come from, and their licenses">Credits</a>
   </nav>
   <button id="join" hidden title="Show a big QR code so others on this Wi-Fi can open the app">
     <span class="qr" id="join-qr"></span><span><small>Join on this Wi-Fi</small><span id="join-url"></span></span>
@@ -250,22 +269,37 @@
 
   <section class="panel" id="cam-area" hidden>
     <h2>Your camera</h2>
+    <div class="row" style="margin:0 0 10px"><div class="seg" id="cam-input" title="What the fly's eyes get from your camera">
+      <button data-input="picture">Camera picture</button><button data-input="stick" class="on">Stick figure</button></div></div>
+    <ol class="steps stick-only" id="stick-steps">
+      <li>Press <b>Start camera</b>.</li>
+      <li>Step back: your head, shoulders and both hands in view.</li>
+      <li>Press <b>Start live</b>.</li>
+      <li>Try a gesture below!</li>
+    </ol>
     <div id="cam-wrap"><span id="cam-off">Camera is off</span><video id="video" autoplay playsinline muted></video>
       <div id="countdown"></div><div id="rec-badge" hidden>REC</div></div>
-    <div class="row"><button class="primary" id="cam-start">Start camera</button></div>
+    <div class="row" id="cam-start-row"><button class="primary" id="cam-start">Start camera</button></div>
     <div class="seen"><canvas id="cam-seen" width="48" height="36"></canvas>
-      <span>What the fly's eyes get: local contrast (edges) at 48×36, the way lamina cells see it.</span></div>
+      <span id="cam-seen-note">What the fly's eyes get: local contrast (edges) at 48×36, the way lamina cells see it.</span></div>
 
-    <h2 class="second">1 · Record your own gesture for each fly action (4 s each)</h2>
+    <div class="stick-only" id="gesture-guide">
+      <h2 class="second">Gestures the fly knows</h2>
+      <div class="gestures" id="gestures"></div>
+    </div>
+
+    <h2 class="second" id="rec-title">1 · Record your own gesture for each fly action (4 s each)</h2>
     <div class="rec" id="rec"></div>
-    <div class="note" style="margin-top:6px">Each button is something the fly does. Make up any gesture for it: it only has to look different from your other gestures. Record “rest” plus at least one action.</div>
-    <h2 class="second">2 · Train the motor decoder</h2>
+    <div class="note" style="margin-top:6px" id="rec-note">Each button is something the fly does. Make up any gesture for it: it only has to look different from your other gestures. Record “rest” plus at least one action.</div>
+    <h2 class="second" id="train-title">2 · Train the motor decoder</h2>
     <div class="note" id="cam-model" style="margin:0 0 8px"></div>
-    <label class="check" id="cam-include-wrap" hidden><input type="checkbox" id="cam-include" checked> Also learn from the class recordings</label>
+    <label class="check" id="cam-include-wrap" hidden><input type="checkbox" id="cam-include" checked> <span id="cam-include-text">Also learn from the class recordings</span></label>
     <div class="row"><button id="cam-train">Train</button><button id="cam-clear">Clear recordings</button></div>
-    <h2 class="second">3 · Go live</h2>
-    <div class="row"><button class="primary" id="cam-live">Start live</button><select id="decoder" title="Which neurons drive the fly's legs"></select></div>
-    <div class="cam-status" id="cam-status"></div>
+    <div id="live-block">
+      <h2 class="second" id="live-title">3 · Go live</h2>
+      <div class="row" id="live-row"><button class="primary" id="cam-live">Start live</button><select id="decoder" title="Which neurons drive the fly's legs"></select></div>
+      <div class="cam-status" id="cam-status"></div>
+    </div>
   </section>
 
   <section class="panel" id="brain-area">
@@ -354,9 +388,15 @@
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+// All data comes through api.js: the server's API, or (static student site) exported files + code in the browser.
+import * as A from "./static/api.js";
+// Stick figures (camera tab, "Stick figure" input): drawn here from the pose tracker's landmarks.
+// A namespace import, so the page also works with a skeleton.js that lacks a newer export.
+import * as SK from "./static/skeleton.js";
+const STATIC = A.STATIC, arr = A.arr;
 const $ = (id) => document.getElementById(id);
 // ?as=student on the teacher's computer: use the app as a student would (own session, own fly).
-const ROLE = new URLSearchParams(location.search).get("as");
+const ROLE = STATIC ? null : new URLSearchParams(location.search).get("as");
 if (ROLE) document.cookie = ROLE === "student" ? "flyrole=student; path=/; max-age=2592000; samesite=lax" : "flyrole=; path=/; max-age=0";
 const SHORT = {
   "whole brain": "Whole brain",
@@ -389,7 +429,7 @@ function stroke(a, b) {
 }
 $("clear").onclick = () => { clearPad(); dirty = false; };
 $("sample").onclick = async () => {
-  const s = await (await fetch("/api/sample")).json();
+  const s = await A.sample();
   const img = pctx.createImageData(28, 28);
   s.pixels.forEach((v, i) => { const g = Math.round(v * 255); img.data.set([g, g, g, 255], i * 4); });
   const tmp = document.createElement("canvas"); tmp.width = tmp.height = 28; tmp.getContext("2d").putImageData(img, 0, 0);
@@ -687,12 +727,6 @@ function showResult(r) {
   $("scrub").max = r.duration_ms;
   renderStats(); t = 0; play();
 }
-async function api(path, body) {
-  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
-  return res.json();
-}
-
 const fmtSecs = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s` : `${Math.round(s)}s`);
 function progressHTML(stage, done, total, eta = null, step = "") {
   const left = eta != null ? ` · ~${fmtSecs(eta)} left` : "";
@@ -705,27 +739,13 @@ function localProgress(el, stage, done, total, t0) {
   el.innerHTML = progressHTML(stage, done, total, done ? (el2 / done) * (total - done) : null);
 }
 
-// Show the server's progress for a long job in `el` until `promise` settles.
-async function withProgress(el, promise) {
-  const tick = async () => {
-    try {
-      const p = await (await fetch("/api/progress")).json();
-      if (!p.active) return;
-      el.innerHTML = progressHTML(p.stage, p.done, p.total, p.eta, p.steps > 1 ? `Step ${p.step} of ${p.steps}: ` : "");
-    } catch { /* keep the last state */ }
-  };
-  const timer = setInterval(tick, 500); tick();
-  try { return await promise; } finally { clearInterval(timer); }
-}
+// Show the progress of a long job (training: on the server, or on this device in the static site) in `el`.
+const showProgress = (el) => (p) => {
+  el.innerHTML = progressHTML(p.stage, p.done, p.total, p.eta, p.steps > 1 ? `Step ${p.step} of ${p.steps}: ` : "");
+};
 
 // ---------------- this device's own brain (runs in a Web Worker) ----------------
 const BR = { worker: null, ready: null, pending: new Map(), next: 1, info: null };
-function b64(typed) {
-  const u = new Uint8Array(typed.buffer, typed.byteOffset, typed.byteLength);
-  let s = "";
-  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
-  return btoa(s);
-}
 function brainLoading(p) {
   const el = $("brain-load");
   if (!p) { el.hidden = true; return; }
@@ -737,7 +757,7 @@ function brainLoading(p) {
   el.querySelector("i").style.width = `${(100 * p.loaded / p.total).toFixed(1)}%`;
 }
 function brainInit(b) {
-  BR.worker = new Worker("/static/brain-worker.js", { type: "module" });
+  BR.worker = new Worker(A.staticURL("brain-worker.js"), { type: "module" });
   BR.ready = new Promise((resolve, reject) => {
     BR.worker.onmessage = (e) => {
       const m = e.data;
@@ -762,15 +782,15 @@ async function brainCall(msg, transfer = []) {
   return new Promise((resolve, reject) => { BR.pending.set(id, { resolve, reject }); BR.worker.postMessage({ ...msg, id }, transfer); });
 }
 // One image through this device's brain. Returns {counts, seconds, payload (with describe), sparse (with sparse)}.
-async function brainRun(image, H, W, ms, { describe = false, sparse = false } = {}) {
+async function brainRun(image, H, W, ms, { describe = false, sparse = false, rateHz = null } = {}) {
   const img = Float32Array.from(image);
-  return brainCall({ type: "run", image: img, H, W, rateHz: BRAIN.config.rate_hz, ms, describe, sparse }, [img.buffer]);
+  return brainCall({ type: "run", image: img, H, W, rateHz: rateHz || BRAIN.config.rate_hz, ms, describe, sparse }, [img.buffer]);
 }
 
 // A trained readout/decoder as plain weights: p = softmax(W · standardize(features) + b).
 function prepDecoder(d) {
-  return { cols: d.cols ? decode(d.cols, Int32Array) : null, F: d.n_features, mean: decode(d.mean, Float32Array),
-           scale: decode(d.scale, Float32Array), coef: decode(d.coef, Float32Array), intercept: d.intercept, classes: d.classes };
+  return { cols: d.cols ? arr(d.cols, Int32Array) : null, F: d.n_features, mean: arr(d.mean, Float32Array),
+           scale: arr(d.scale, Float32Array), coef: arr(d.coef, Float32Array), intercept: d.intercept, classes: d.classes };
 }
 function decoderProba(d, counts, image, nClasses) {
   const F = d.F, z = new Float64Array(F);
@@ -791,7 +811,7 @@ function decoderProba(d, counts, image, nClasses) {
 }
 let READOUTS = null;  // MNIST readouts, applied to this device's spikes
 async function loadReadouts() {
-  const r = await (await fetch("/api/readouts")).json();
+  const r = await A.readouts();
   READOUTS = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, prepDecoder(v)]));
 }
 
@@ -801,7 +821,7 @@ async function run() {
   if (busy || !BRAIN) return;
   busy = true; $("run").disabled = true; playing = false;
   try {
-    const d = await api("/api/digit", { image: pad.toDataURL("image/png") });
+    const d = await A.digit(pad);
     if (!BR.info) setStatus(`<span class="spin"></span>Waiting for the fly brain to finish loading on this device…`);
     await BR.ready;
     if (!READOUTS) await loadReadouts();
@@ -819,8 +839,10 @@ async function run() {
 $("run").onclick = run;
 
 // ---------------- camera -> brain -> fly body ----------------
-const CAM_NAMES = { "descending": "Descending neurons (brain → body)", "central brain": "Central brain",
-                    "whole brain": "Whole brain", "pixels": "Contrast pixels — no brain (baseline)" };
+const CAM_NAMES_PICTURE = { "descending": "Descending neurons (brain → body)", "central brain": "Central brain",
+                            "whole brain": "Whole brain", "pixels": "Contrast pixels — no brain (baseline)" };
+const CAM_NAMES_STICK = { "whole brain": "Whole brain", "descending": "Descending neurons (brain → body)",
+                          "central brain": "Central brain", "pixels": "Stick-figure pixels — no brain (baseline)" };
 const ACT_SHORT = ["rest", "R front leg", "L front leg", "both front", "wings out", "flap", "middle legs", "hind legs",
                    "antennae up", "wiggle"];
 const video = $("video"), grab = document.createElement("canvas");
@@ -828,6 +850,113 @@ grab.width = 160; grab.height = 120;
 let camOn = false, live = false, camBusy = false, cam = null, DEC = null;
 const camMsg = (html) => ($("cam-status").innerHTML = html);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// What the fly's eyes get from the camera: the camera picture (local contrast), or a stick figure of
+// the person's pose. Each input has its own recordings and decoders; the choice is kept per device.
+const STICK_SPEC = SK.SPEC_VERSION ?? 1;
+let INPUT = "stick";   // default: the stick figure (works out of the box, for anyone)
+try { if (localStorage.getItem("fly-cam-input") === "picture") INPUT = "picture"; } catch { /* private mode */ }
+const stick = () => INPUT === "stick";
+const camNames = () => (stick() ? CAM_NAMES_STICK : CAM_NAMES_PICTURE);   // decoder names, in menu order
+const CAMAPI = () => (stick()
+  ? { status: () => A.stickStatus(STICK_SPEC), samples: (l, f) => A.stickSamples(l, f, STICK_SPEC),
+      train: (b, p) => A.stickTrain(b, p, STICK_SPEC), clear: () => A.stickClear(STICK_SPEC), decoders: () => A.stickDecoders(STICK_SPEC) }
+  : { status: A.camStatus, samples: A.camSamples, train: A.camTrain, clear: A.camClear, decoders: A.camDecoders });
+// Pre-trained stick-figure gestures, by fly action (shown when the model knows them).
+// The guide shows each as a small stick figure, mirrored like the camera preview: your right hand on the right.
+const PIC = { head: '<circle class="b" cx="20" cy="14" r="3.8"/>', sh: "M13 21 L27 21",
+  lDown: "M13 21 L11 28.5 L11 36", rDown: "M27 21 L29 28.5 L29 36", lUp: "M13 21 L7 15 L7 5", rUp: "M27 21 L33 15 L33 5",
+  lHeart: "M13 21 L11 29 L16 29.5", rHeart: "M27 21 L29 29 L24 29.5",
+  heart: '<path class="heart" d="M20 35 L16.2 30.6 A2.3 2.3 0 0 1 20 27.8 A2.3 2.3 0 0 1 23.8 30.6 Z"/>' };
+const STICK_GESTURES = {
+  0: { you: "Hands down", fly: "Fly stands still", arms: ["lDown", "rDown"] },
+  1: { you: "✋ Your right hand up", fly: "Fly: right front leg up", arms: ["lDown", "rUp"] },
+  2: { you: "✋ Your left hand up", fly: "Fly: left front leg up", arms: ["lUp", "rDown"] },
+  3: { you: "🙌 Both hands up", fly: "Fly: both front legs up", arms: ["lUp", "rUp"] },
+  5: { you: "🫶 Hand heart", fly: "Fly flaps its wings", arms: ["lHeart", "rHeart"], extra: "heart",
+       tip: "Both hands make a heart, at your chest or in front of your face" },
+};
+$("gestures").innerHTML = Object.entries(STICK_GESTURES).map(([c, g]) =>
+  `<div class="gesture" data-gesture="${c}" title="${g.tip || g.you.replace(/^[^A-Za-z]+/, "")} → ${g.fly.replace("Fly: ", "the fly's ")}">` +
+  `<svg viewBox="0 0 40 40" aria-hidden="true">${PIC.head}<path class="b" d="${[PIC.sh, ...g.arms.map((a) => PIC[a])].join(" ")}"/>${g.extra ? PIC[g.extra] : ""}</svg>` +
+  `<div><div class="g-you">${g.you}</div><div class="g-fly">${g.fly}</div></div></div>`).join("");
+// Live: light up the gesture the fly is doing now (the most likely action, if at least 50% sure).
+function lightGesture(p) {
+  let best = -1;
+  if (p && p.length) { best = p.indexOf(Math.max(...p)); if (p[best] < 0.5) best = -1; }
+  document.querySelectorAll(".gesture").forEach((g) => g.classList.toggle("lit", +g.dataset.gesture === best));
+}
+const PICTURE_REC_NOTE = "Each button is something the fly does. Make up any gesture for it: it only has to look different from your other gestures. Record “rest” plus at least one action.";
+const camRate = () => (stick() ? (cam && cam.rate_hz) || SK.RATE_HZ : null);   // input firing rate (null: the brain's default)
+
+function setInput(m) {
+  if (camBusy || m === INPUT) return;
+  stopLive();
+  INPUT = m;
+  try { localStorage.setItem("fly-cam-input", m); } catch { /* private mode */ }
+  cam = null; DEC = null; $("decoder").innerHTML = ""; renderCamProbs(null); camMsg("");
+  renderSeen("cam-seen", new Float32Array(36 * 48), [36, 48]);
+  inputTexts();
+  if (appMode === "camera") refreshCam().catch((e) => camMsg(`<span style="color:#ff6b6b">${e.message}</span>`));
+  if (stick() && camOn) getTracker().catch(() => {});
+}
+function inputTexts() {
+  document.querySelectorAll("[data-input]").forEach((b) => b.classList.toggle("on", b.dataset.input === INPUT));
+  $("cam-seen-note").innerHTML = stick()
+    ? "What the fly's eyes get: a stick figure of your pose, 48×36. Your camera picture stays on this device."
+    : "What the fly's eyes get: local contrast (edges) at 48×36, the way lamina cells see it.";
+  $("rec-title").textContent = stick() ? "Optional · teach the fly your own gesture" : "1 · Record your own gesture for each fly action (4 s each)";
+  $("train-title").textContent = stick() ? "Optional · train on your gestures" : "2 · Train the motor decoder";
+  $("cam-include-text").textContent = stick() ? "Also learn from the class's stick-figure recordings" : "Also learn from the class recordings";
+  $("rec-note").innerHTML = stick() ? stickRecNote() : PICTURE_REC_NOTE;
+  // Stick figure: short steps + the gesture guide, and "Start live" next to "Start camera".
+  $("cam-area").classList.toggle("stick", stick());
+  if (stick()) { $("cam-start-row").append($("cam-live")); $("cam-start-row").after($("live-block")); }
+  else { $("live-row").prepend($("cam-live")); $("cam-area").append($("live-block")); }
+  if (appMode === "camera") $("hint").textContent = camHint();
+  lightGesture(null);
+}
+const camHint = () => (stick() ? "Start the camera, then press Start live" : "Start the camera, record poses, train, then go live");
+document.querySelectorAll("[data-input]").forEach((b) => (b.onclick = () => setInput(b.dataset.input)));
+inputTexts();
+
+// The pose tracker (MediaPipe, tracker.js), loaded on first use of the stick-figure input.
+let trackerP = null;
+function getTracker() {
+  return (trackerP ||= import("./static/tracker.js").then((m) => m.createTracker({ hands: true }))
+    .catch((e) => { trackerP = null; throw new Error(`The pose model could not load (${e.message}). It needs the internet once.`); }));
+}
+// A stick figure of the person in the current video frame: {image, image_shape, landmarks (null: nobody found)}.
+async function stickFrame() {
+  const t = await getTracker();
+  while (video.readyState < 2) await sleep(30);
+  const r = t.detect(video, performance.now());
+  const image = SK.render(r.pose, r.hands);
+  return { image, image_shape: [SK.H, SK.W],
+           landmarks: r.pose ? { pose: r.pose, hands: r.hands, size: [video.videoWidth, video.videoHeight] } : null };
+}
+// Recordings drawn with an older stick-figure version: draw them again from their landmarks and
+// show them to this device's brain again (once per page load).
+let redrawTried = false;
+async function redrawStale() {
+  if (redrawTried || camBusy) return;
+  redrawTried = true; camBusy = true;
+  try {
+    const st = await A.stickStale(STICK_SPEC);
+    if (st.spec !== STICK_SPEC) { camMsg(`<span style="color:#ff6b6b">This page is out of date: reload it.</span>`); return; }
+    await BR.ready;
+    const out = [], t1 = performance.now();
+    for (const [k, f] of st.frames.entries()) {
+      const lm = f.landmarks || {}, image = SK.render(lm.pose || null, lm.hands || null);
+      const r = await brainRun(image, SK.H, SK.W, cam.duration_ms, { sparse: true, rateHz: camRate() });
+      out.push({ i: f.i, image, sparse: r.sparse });
+      localProgress($("cam-status"), "Redrawing your recordings with the new stick figure", k + 1, st.frames.length, t1);
+    }
+    if (out.length) renderCamStatus(await A.stickRedraw(STICK_SPEC, out));
+    camMsg(`Redrew ${out.length} recordings with the new stick figure. Press <b>Train</b> to update your model.`);
+  } catch (e) { camMsg(`<span style="color:#ff6b6b">${e.message}</span>`); }
+  finally { camBusy = false; }
+}
 
 function setAppMode(m) {
   appMode = m;
@@ -838,7 +967,7 @@ function setAppMode(m) {
   // Only stream the fly body while it is on screen (the physics runs only for viewers).
   if (m === "camera") { flyShow(true); refreshCam(); }
   else { flyShow(false); stopLive(); }
-  $("hint").textContent = m === "camera" ? "Start the camera, record poses, train, then go live" : "Draw a digit and press Run";
+  $("hint").textContent = m === "camera" ? camHint() : "Draw a digit and press Run";
 }
 document.querySelectorAll("[data-mode]").forEach((b) => (b.onclick = () => setAppMode(b.dataset.mode)));
 
@@ -852,20 +981,24 @@ async function startCamera() {
   try {
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
     camOn = true; $("cam-off").hidden = true; $("cam-start").textContent = "Camera on"; $("cam-start").disabled = true;
+    if (stick()) getTracker().catch((e) => camMsg(`<span style="color:#ff6b6b">${e.message}</span>`));   // load the pose model meanwhile
   } catch (e) { camMsg(`<span style="color:#ff6b6b">Camera not available: ${e.message}</span>`); }
 }
 $("cam-start").onclick = startCamera;
-function frameURL() { grab.getContext("2d").drawImage(video, 0, 0, 160, 120); return grab.toDataURL("image/jpeg", 0.85); }
+// A webcam frame -> what the fly's eyes get (preprocessed on the server, or here in the static site).
+function camFrame() { grab.getContext("2d", { willReadFrequently: true }).drawImage(video, 0, 0, 160, 120); return A.camFrame(grab); }
+const grabFrame = () => (stick() ? stickFrame() : camFrame());
 
 function renderCamStatus(s) {
+  if ((s.input === "stick") !== stick()) return;   // an answer for the other input (it was switched meanwhile)
   cam = s;
   if (!$("rec").children.length) {
     $("rec").innerHTML = s.classes.map((c, i) => `<button data-rec="${i}" title="Record 4 s of your own gesture for this fly action"><span><small>Fly:</small> ${c}</span><b title="frames recorded">0</b></button>`).join("");
     document.querySelectorAll("[data-rec]").forEach((b) => (b.onclick = () => record(+b.dataset.rec)));
   }
   document.querySelectorAll("[data-rec]").forEach((b) => (b.querySelector("b").textContent = s.counts[+b.dataset.rec]));
-  const sel = $("decoder"), keep = sel.value || "descending";
-  sel.innerHTML = Object.entries(CAM_NAMES).map(([k, nm]) => {
+  const sel = $("decoder"), keep = sel.value || (stick() ? "whole brain" : "descending");
+  sel.innerHTML = Object.entries(camNames()).map(([k, nm]) => {
     const m = s.metrics[k]; const acc = m && m.cv_accuracy != null ? ` · CV ${(m.cv_accuracy * 100).toFixed(0)}%` : "";
     return `<option value="${k}">${nm.split(" (")[0].split(" —")[0]}${acc}</option>`;
   }).join("");
@@ -880,47 +1013,87 @@ function renderCamStatus(s) {
     (s.class_updated ? ` <span class="teacher">The class model has changed since: press Train to include it.</span>` : "");
   else model = (s.trained ? `Using the <b>class model</b> (${cls} recordings by the teacher). Record your own gestures and press Train to make it yours.`
                          : `No model yet: the teacher hasn't trained the class model. Record gestures and press Train.`);
+  if (s.input === "stick") model = stickModelLine(s);
   if (!s.teacher && ROLE === "student") model = `<a href="?as=teacher" style="color:var(--muted)">Back to teacher mode</a> · ` + model;
   if (s.class_preparing) model += ` <span class="spin"></span>Preparing the class model…`;
   $("cam-model").innerHTML = model;
-  $("cam-include-wrap").hidden = s.teacher;
+  if (s.input === "stick") {
+    $("rec-note").innerHTML = stickRecNote();
+    const known = s.preparing ? null : ((s.pretrained || {}).classes || []).filter((c) => STICK_GESTURES[c] && c < s.classes.length);
+    document.querySelectorAll(".gesture").forEach((g) => (g.hidden = !!known && !known.includes(+g.dataset.gesture)));
+    $("gesture-guide").hidden = !!known && !known.length;   // no pre-trained model: no gestures to show
+    if (s.preparing) setTimeout(() => { if (stick()) refreshCam().catch(() => {}); }, 2000);
+    if (s.stale > 0) redrawStale();
+  } else $("rec-note").textContent = PICTURE_REC_NOTE;
+  $("cam-include-wrap").hidden = s.teacher || STATIC;   // static site: own recordings only (class recordings aren't shipped)
   $("cam-include").checked = s.include_class;
   if (!DEC || DEC.version !== s.decoders_version) loadDecoders().catch(() => {});
 }
+// The model line and the recording note of the stick-figure input.
+function stickModelLine(s) {
+  const sum = (a) => a.reduce((x, y) => x + y, 0), own = sum(s.counts), cls = sum(s.class_counts);
+  const pre = s.pretrained || {}, fr = (s.metrics["whole brain"] || {}).frames, preN = fr ? fr.pretrained : 0;
+  let m;
+  if (s.preparing) return `<span class="spin"></span>Loading the pre-trained stick-figure model…`;
+  if (s.teacher) m = `<span class="teacher">You are the teacher.</span> Your stick-figure recordings (${cls}) + the pre-trained examples make up the class model.` +
+    (s.users ? ` ${s.users} student${s.users > 1 ? "s" : ""} active.` : "") + ` <a href="?as=student" style="color:var(--muted)">See it as a student</a>`;
+  else if (s.using === "own") m = `Using <b>your model</b>: ${own} of your recordings${s.include_class && cls ? ` + ${cls} from the class` : ""}${preN ? ` + ${preN} pre-trained examples` : ""}.` +
+    (s.class_updated ? ` <span class="teacher">The class model has changed since: press Train to include it.</span>` : "");
+  else if (s.using === "class") m = `Using the <b>class model</b> (pre-trained + ${cls} recordings by the teacher). It works right away: press <b>Start live</b>.`;
+  else if (s.trained) m = `Using the <b>pre-trained model</b>: it learned from other people's stick figures and works right away. Press <b>Start live</b>.`;
+  else m = `No pre-trained model here: record gestures and press Train.`;
+  if (s.own_outdated) m += ` <span class="teacher">Your model was made for an older stick figure: press Train.</span>`;
+  if (pre.available && pre.spec_version != null && pre.spec_version !== s.spec_version)
+    m += ` <span class="teacher">The pre-trained model was made for stick figure v${pre.spec_version}, this app draws v${s.spec_version}.</span>`;
+  return m;
+}
+function stickRecNote() {
+  return "Tap a fly action and do your gesture for 4 s, then press <b>Train</b>. " +
+    "It works best for you. Pick an arm position that looks different from the gestures above.";
+}
 async function loadDecoders() {
-  const d = await (await fetch("/api/cam/decoders")).json();
-  DEC = { version: d.version, source: d.source,
+  const want = INPUT, d = await CAMAPI().decoders();
+  if (want !== INPUT) return;
+  DEC ={ version: d.version, source: d.source,
           decoders: Object.fromEntries(Object.entries(d.decoders).map(([k, v]) => [k, prepDecoder(v)])) };
 }
-async function refreshCam() { renderCamStatus(await (await fetch("/api/cam/status")).json()); }
+async function refreshCam() { renderCamStatus(await CAMAPI().status()); }
 
 async function record(label) {
   if (!camOn) await startCamera();
   if (!camOn || camBusy) return;
   camBusy = true; stopLive();
-  const btn = document.querySelector(`[data-rec="${label}"]`);
+  const btn = document.querySelector(`[data-rec="${label}"]`), api = CAMAPI(), isStick = stick();
   try {
+    if (isStick && !(await Promise.race([getTracker().then(() => true), sleep(50).then(() => false)]))) {
+      camMsg(`<span class="spin"></span>Loading the pose model…`); await getTracker(); camMsg("");
+    }
     for (const n of [3, 2, 1]) { $("countdown").textContent = n; await sleep(700); }
     $("countdown").textContent = ""; $("rec-badge").hidden = false; btn.classList.add("recording");
-    const t0 = performance.now(), frames = [];
+    const t0 = performance.now();
+    let frames = [];
     while (performance.now() - t0 < 4000) {
-      const f = await api("/api/cam/frame", { image: frameURL() });
+      const f = await grabFrame();
       renderSeen("cam-seen", f.image, f.image_shape); frames.push(f);
       await sleep(100);
     }
     $("rec-badge").hidden = true; btn.classList.remove("recording");
-    // Show every frame to this device's brain; send the frames and the spikes to the server for training.
+    const all = frames.length;
+    if (isStick) {         // frames without a person would teach the fly that "nobody" means this action
+      frames = frames.filter((f) => f.landmarks);
+      if (frames.length < 5) throw new Error("No person found in most frames: step back so your shoulders are in view, then record again.");
+    }
+    // Show every frame to this device's brain; keep the frames and the spikes for training (on the server, or in this browser).
     await BR.ready;
-    const counts = [], t1 = performance.now();
+    const recs = [], t1 = performance.now();
     for (let i = 0; i < frames.length; i++) {
-      const r = await brainRun(frames[i].image, frames[i].image_shape[0], frames[i].image_shape[1], cam.duration_ms, { sparse: true });
-      counts.push({ idx: b64(r.sparse.idx), val: b64(r.sparse.val) });
+      const r = await brainRun(frames[i].image, frames[i].image_shape[0], frames[i].image_shape[1], cam.duration_ms, { sparse: true, rateHz: camRate() });
+      recs.push({ image: frames[i].image, sparse: r.sparse, landmarks: frames[i].landmarks });
       localProgress($("cam-status"), "Showing your frames to the fly brain on this device", i + 1, frames.length, t1);
     }
-    const s = await api("/api/cam/samples", { label, counts,
-      images: frames.map((f) => b64(Uint8Array.from(f.image, (v) => Math.round(v * 255)))) });
+    const s = await api.samples(label, recs);
     renderCamStatus(s);
-    camMsg(`Recorded ${frames.length} frames for “${cam.classes[label]}”. Vary your position a little between recordings, then press Train.`);
+    camMsg(`Recorded ${frames.length} frames for “${cam.classes[label]}”${all > frames.length ? ` (${all - frames.length} without a person left out)` : ""}. Vary your position a little between recordings, then press Train.`);
   } catch (e) { camMsg(`<span style="color:#ff6b6b">${e.message}</span>`); }
   finally { $("countdown").textContent = ""; $("rec-badge").hidden = true; btn.classList.remove("recording"); camBusy = false; }
 }
@@ -930,18 +1103,23 @@ $("cam-train").onclick = async () => {
   const n = cam ? cam.counts.reduce((a, b) => a + b, 0) : 0;
   camMsg(`<span class="spin"></span>Showing ${n} frames to the fly brain and training decoders…`);
   try {
-    const r = await withProgress($("cam-status"), api("/api/cam/train", { include_class: $("cam-include").checked }));
+    const r = await CAMAPI().train({ include_class: $("cam-include").checked }, showProgress($("cam-status")));
     renderCamStatus(r); await loadDecoders();
     const m = r.metrics, pct = (k) => (m[k] && m[k].cv_accuracy != null ? (m[k].cv_accuracy * 100).toFixed(0) + "%" : "–");
-    camMsg(`Trained on ${r.frames} recordings in ${r.train_seconds}s. Cross-validated accuracy: descending ${pct("descending")} (${m.descending ? m.descending.neurons : 0} active neurons), whole brain ${pct("whole brain")}, pixels ${pct("pixels")}. Press <b>Start live</b>.`);
+    const fr = m["whole brain"] && m["whole brain"].frames;
+    if (r.input === "stick") camMsg(`Trained on ${r.frames} frames${fr ? ` (${fr.pretrained} pre-trained + ${fr.recorded} recorded)` : ""} in ${r.train_seconds}s. Cross-validated accuracy: whole brain ${pct("whole brain")} (${m["whole brain"] ? m["whole brain"].neurons : 0} neurons), descending ${pct("descending")}, pixels ${pct("pixels")}. Press <b>Start live</b>.`);
+    else camMsg(`Trained on ${r.frames} recordings in ${r.train_seconds}s. Cross-validated accuracy: descending ${pct("descending")} (${m.descending ? m.descending.neurons : 0} active neurons), whole brain ${pct("whole brain")}, pixels ${pct("pixels")}. Press <b>Start live</b>.`);
   } catch (e) { camMsg(`<span style="color:#ff6b6b">${e.message}</span>`); }
   finally { camBusy = false; $("cam-train").disabled = false; }
 };
 $("cam-clear").onclick = async () => {
-  const q = cam && cam.teacher ? "Delete the CLASS recordings and the class model? Students who haven't trained their own model lose it too."
-                                : "Delete your recordings and your model? You'll go back to the class model.";
+  const q = stick()
+    ? (cam && cam.teacher ? "Delete the CLASS stick-figure recordings and model? (Camera-picture recordings and the pre-trained model stay.)"
+                          : "Delete your stick-figure recordings and your model? You'll go back to the class / pre-trained model.")
+    : (cam && cam.teacher ? "Delete the CLASS recordings and the class model? Students who haven't trained their own model lose it too."
+                          : "Delete your recordings and your model? You'll go back to the class model.");
   if (!confirm(q)) return;
-  stopLive(); renderCamStatus(await api("/api/cam/clear")); renderCamProbs(null); camMsg("Recordings cleared.");
+  stopLive(); renderCamStatus(await CAMAPI().clear()); renderCamProbs(null); camMsg("Recordings cleared.");
 };
 
 function renderCamProbs(r) {
@@ -951,7 +1129,7 @@ function renderCamProbs(r) {
   const shown = known ? known.classes : [];  // only actions the decoder was trained on
   box.innerHTML = Object.entries(r.probs).map(([k, p]) => {
     const best = p.indexOf(Math.max(...p)), m = cam && cam.metrics[k];
-    return `<div class="probrow ${k === r.decoder ? "sel" : ""}"><div class="top"><span>${CAM_NAMES[k]}</span><span>${m && m.cv_accuracy != null ? "CV " + (m.cv_accuracy * 100).toFixed(0) + "%" : ""}</span></div>
+    return `<div class="probrow ${k === r.decoder ? "sel" : ""}"><div class="top"><span>${camNames()[k]}</span><span>${m && m.cv_accuracy != null ? "CV " + (m.cv_accuracy * 100).toFixed(0) + "%" : ""}</span></div>
       <div class="pcells" style="--n:${Math.min(shown.length, 4)}">${shown.map((i) => { const v = p[i];
         return `<div class="${i === best ? "max" : ""}" style="background:rgba(245,197,66,${0.08 + 0.92 * v});${v > 0.55 ? "color:#17130a" : ""}">${ACT_SHORT[i] || cam.classes[i]}</div>`; }).join("")}</div></div>`;
   }).join("");
@@ -960,37 +1138,49 @@ function renderCamProbs(r) {
 async function liveLoop() {
   while (live) {
     try {
-      const f = await api("/api/cam/frame", { image: frameURL() });
-      const r = await brainRun(f.image, f.image_shape[0], f.image_shape[1], cam.duration_ms, { describe: true });
+      const f = await grabFrame();
+      const r = await brainRun(f.image, f.image_shape[0], f.image_shape[1], cam.duration_ms, { describe: true, rateHz: camRate() });
       if (!live) break;
       if (!DEC) await loadDecoders();
       const n = cam.classes.length, decoder = $("decoder").value;
-      const probs = Object.fromEntries(Object.entries(DEC.decoders).map(([k, d]) => [k, decoderProba(d, r.counts, f.image, n)]));
+      let probs = Object.fromEntries(Object.entries(DEC.decoders).map(([k, d]) => [k, decoderProba(d, r.counts, f.image, n)]));
+      if (stick()) {   // stick figures flicker when a hand is found in one frame and not the next: average the last 3 frames
+        liveHist.push(probs); if (liveHist.length > 3) liveHist.shift();
+        probs = Object.fromEntries(Object.keys(probs).map((k) => [k, probs[k].map((_, c) => liveHist.reduce((a, h) => a + (h[k] ? h[k][c] : 0), 0) / liveHist.length)]));
+      }
       const p = probs[decoder] || probs["whole brain"];
+      if (stick()) lightGesture(p);
       // each class is a fly action: off below 40% confidence, fully on from 80%; "rest" is no action
       const levels = p.map((q, i) => (i === 0 ? 0 : Math.min(1, Math.max(0, (q - 0.4) / 0.4))));
-      api("/api/fly/command", { levels }).catch(() => {});
+      A.flyCommand({ levels }).catch(() => {});
       const out = Object.assign(r.payload, { image: f.image, image_shape: f.image_shape });
       renderSeen("cam-seen", f.image, f.image_shape); showResult(out); renderCamProbs({ probs, decoder });
-      camMsg(`Live · ${r.seconds.toFixed(2)} s of computing per frame on this device · ${out.summary[4].active} descending neurons active`);
+      camMsg(`Live · ${r.seconds.toFixed(2)} s of computing per frame on this device · ${out.summary[4].active} descending neurons active` +
+             (!stick() ? "" : !f.landmarks ? ` · <span style="color:#ff8080">No person found: the fly sees nothing.</span>`
+               : ` · hands found: your right ${f.landmarks.hands && f.landmarks.hands.right ? "✓" : "–"}, your left ${f.landmarks.hands && f.landmarks.hands.left ? "✓" : "–"}`));
       if (performance.now() - lastCamCheck > 15000) { lastCamCheck = performance.now(); refreshCam().catch(() => {}); }
     } catch (e) { camMsg(`<span style="color:#ff6b6b">${e.message}</span>`); stopLive(); }
   }
 }
-let lastCamCheck = 0;
-function stopLive() { live = false; $("cam-live").textContent = "Start live"; }
+let lastCamCheck = 0, liveHist = [];
+function stopLive() { live = false; liveHist = []; $("cam-live").textContent = "Start live"; lightGesture(null); }
 $("cam-live").onclick = async () => {
   if (live) return stopLive();
   if (!camOn) await startCamera();
   if (!camOn) return;
+  if (stick()) {
+    try { if (!(await Promise.race([getTracker().then(() => true), sleep(50).then(() => false)]))) { camMsg(`<span class="spin"></span>Loading the pose model…`); await getTracker(); } }
+    catch (e) { camMsg(`<span style="color:#ff6b6b">${e.message}</span>`); return; }
+  }
   flySetManual(0, false);
   live = true; $("cam-live").textContent = "Stop live"; liveLoop();
 };
 
 // ---------------- 3D fly body ----------------
 // The server simulates the body (MuJoCo) and streams where every body part is; we draw it here,
-// so each viewer can rotate the fly independently.
-const FLY = { loading: null, es: null, raf: 0, visible: false, meshes: [], manual: 0, centered: false };
+// so each viewer can rotate the fly independently. In the static site there is no physics: the
+// pose blender (flypose.js, FLY.poser) computes the same kind of pose every frame in this browser.
+const FLY = { loading: null, es: null, raf: 0, visible: false, meshes: [], manual: 0, centered: false, poser: null };
 const cap = (t) => t[0].toUpperCase() + t.slice(1);
 
 function checkerTexture() {
@@ -1015,9 +1205,8 @@ async function flyInit() {
   const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(4, -3, 8); scene.add(key);
   const rim = new THREE.DirectionalLight(0x9fb8ff, 0.9); rim.position.set(-5, 4, 3); scene.add(rim);
 
-  const res = await fetch("/api/fly/model");
-  if (!res.ok) throw new Error(res.statusText);
-  const m = await res.json();
+  const m = await A.flyModel();
+  if (STATIC) FLY.poser = await A.poser();
   const verts = decode(m.verts, Float32Array), faces = decode(m.faces, Uint16Array);
   const geos = m.meshes.map((x) => {
     const g = new THREE.BufferGeometry();
@@ -1073,7 +1262,7 @@ async function flyInit() {
 function flySetManual(i, send = true) {
   FLY.manual = i;
   document.querySelectorAll("[data-act]").forEach((x) => x.classList.toggle("on", +x.dataset.act === i && i > 0));
-  if (send) api("/api/fly/command", { action: i }).catch(() => {});
+  if (send) A.flyCommand({ action: i }).catch(() => {});
 }
 
 const FLY_VIEWS = { oblique: [0.72, 0.55, 0.42], front: [1, 0, 0.12], side: [0, 1, 0.1], top: [-0.12, 0, 1] };
@@ -1118,7 +1307,7 @@ $("fly-spin").onclick = () => {
 
 function flyPose(o) {
   FLY.dirty = true;
-  const a = decode(o.p, Float32Array);  // per body part: x y z qw qx qy qz
+  const a = o.pose || decode(o.p, Float32Array);  // per body part: x y z qw qx qy qz
   FLY.meshes.forEach((mesh, i) => {
     const k = i * 7;
     mesh.position.set(a[k], a[k + 1], a[k + 2]);
@@ -1142,6 +1331,10 @@ function flyPose(o) {
 
 function flyFrame() {
   if (!FLY.visible) { FLY.raf = 0; return; }
+  if (FLY.poser) {   // static site: pose this frame here (skipped while nothing moves)
+    const r = FLY.poser.update(performance.now() / 1000);
+    if (r.moving || !FLY.centered) flyPose({ pose: r.pose, l: r.levels });
+  }
   // draw only when the pose or the view changed (saves battery on phones)
   if (FLY.controls.update() || FLY.dirty) { FLY.renderer.render(FLY.scene, FLY.camera); FLY.dirty = false; }
   FLY.raf = requestAnimationFrame(flyFrame);
@@ -1153,7 +1346,7 @@ function flyShow(on) {
   FLY.loading ||= flyInit().catch((e) => { $("fly-msg").textContent = `Could not load the fly: ${e.message}`; throw e; });
   FLY.loading.then(() => {
     if (!FLY.visible) return;
-    if (!FLY.es) { FLY.es = new EventSource("/api/fly/stream"); FLY.es.onmessage = (e) => flyPose(JSON.parse(e.data)); }
+    if (!FLY.es && !STATIC) { FLY.es = new EventSource("/api/fly/stream"); FLY.es.onmessage = (e) => flyPose(JSON.parse(e.data)); }
     if (!FLY.raf) flyFrame();
   }, () => {});
 }
@@ -1165,7 +1358,7 @@ const fmtN = (v) => v.toLocaleString();
 function showKnockouts() {   // paint silenced neurons and the midline cut in the 3D map
   if (!deadAttr || !KO_SUMMARY) return;
   const dead = deadAttr.array; dead.fill(0);
-  for (const i of decode(KO_SUMMARY.silenced_idx, Int32Array)) { const v = vtx[i]; if (v >= 0) dead[v] = 1; }
+  for (const i of arr(KO_SUMMARY.silenced_idx, Int32Array)) { const v = vtx[i]; if (v >= 0) dead[v] = 1; }
   deadAttr.needsUpdate = true; cutPlane.visible = KO_SUMMARY.cut_hemispheres; needsRender = true;
 }
 function koLabel(r) {
@@ -1189,8 +1382,9 @@ function renderKo(s) {
 }
 async function koApply() {
   try {
-    const s = await api("/api/lesion/resolve", { rules: KO.rules, cut_hemispheres: KO.cut });
-    await brainCall({ type: "lesion", silenced: decode(s.silenced_idx, Int32Array), cut: s.cut_hemispheres });
+    const s = await A.lesionResolve({ rules: KO.rules, cut_hemispheres: KO.cut });
+    const r = await brainCall({ type: "lesion", silenced: Int32Array.from(arr(s.silenced_idx, Int32Array)), cut: s.cut_hemispheres });
+    if (s.connections_removed == null) s.connections_removed = r.removed;   // static site: counted by this device's brain
     renderKo(s);
     try { localStorage.setItem("fly-knockouts", JSON.stringify(KO)); } catch { /* private mode */ }
     $("ko-eval-out").innerHTML = "";
@@ -1205,7 +1399,7 @@ function koHint() {
   $("ko-hint").textContent = `${fmtN(n)} of ${fmtN(c[koSide])} neurons${koSide !== "both" ? ` (${koSide} side)` : ""}`;
 }
 async function koInit() {
-  KO_OPTS = await (await fetch("/api/lesion/options")).json();
+  KO_OPTS = await A.lesionOptions();
   const cats = [...new Set(KO_OPTS.groups.map((g) => g.category))];
   $("ko-target").innerHTML = cats.map((c) => `<optgroup label="${c}">${KO_OPTS.groups.filter((g) => g.category === c)
     .map((g) => `<option value="${g.key}">${g.label}</option>`).join("")}</optgroup>`).join("") +
@@ -1237,7 +1431,7 @@ $("ko-eval").onclick = async () => {
   try {
     await BR.ready;
     if (!READOUTS) await loadReadouts();
-    const t = await (await fetch("/api/mnist/test?n=200")).json(), px = decode(t.images, Uint8Array), keys = Object.keys(READOUTS);
+    const t = await A.mnistTest(200), px = arr(t.images, Uint8Array), keys = Object.keys(READOUTS);
     const correct = Object.fromEntries(keys.map((k) => [k, 0])), t0 = performance.now();
     for (let i = 0; i < t.n; i++) {
       const img = Float32Array.from(px.subarray(i * 784, (i + 1) * 784), (v) => v / 255);
@@ -1258,7 +1452,7 @@ $("ko-eval").onclick = async () => {
 
 // ---------------- init ----------------
 (async () => {
-  const b = await (await fetch("/api/brain")).json();
+  const b = await A.brain();
   b.pos = decode(b.pos, Int16Array); b.region = decode(b.region, Uint8Array);
   BRAIN = b;
   brainInit(b);
@@ -1273,7 +1467,7 @@ $("ko-eval").onclick = async () => {
 
 // ---------------- join from the local network ----------------
 let NET = null;
-(async () => {
+if (!STATIC) (async () => {   // the static site has no local network to join
   try {
     const n = NET = await (await fetch("/api/network")).json();
     if (!n.shared) return;
