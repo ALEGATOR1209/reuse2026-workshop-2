@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fly Brain credits</title>
+<style>
+  :root { --bg: #0b0d11; --panel: #13161c; --line: #262b35; --text: #e6e8ec; --muted: #8b93a1; --accent: #f5c542;
+          font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.55; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 28px 0 8px; }
+  p, li { color: #cfd3da; }
+  .muted { color: var(--muted); }
+  a { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td:first-child { width: 36%; }
+  td small { color: var(--muted); display: block; }
+</style>
+</head>
+<body>
+<main>
+  <p><a href="../">← back to the app</a></p>
+  <h1>Credits and licenses</h1>
+  <p class="muted">A simulated fruit fly brain, wired like the real one, used as a fixed reservoir: only small linear readouts on top are trained.</p>
+
+  <h2>Data and models used here</h2>
+  <table>
+    <tr><td><b>FlyWire connectome v783</b><small>wiring of 138,639 neurons, cell types, positions</small></td>
+      <td>FlyWire Consortium. Dorkenwald et al., <i>Nature</i> 2024; Schlegel et al., <i>Nature</i> 2024.
+        FlyWire public release data: <a href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</a>
+        (the v783 connectivity on Zenodo is listed as CC BY 4.0). Non-commercial use with attribution.
+        <a href="https://flywire.ai/">flywire.ai</a> · <a href="https://github.com/flyconnectome/flywire_annotations">flywire_annotations</a></td></tr>
+    <tr><td><b>Brain model</b><small>leaky integrate-and-fire network, connectivity tables</small></td>
+      <td>Shiu et al., <i>Nature</i> 2024 (<a href="https://github.com/philshiu/Drosophila_brain_model">code: MIT</a>),
+        via <a href="https://github.com/eonsystemspbc/fly-brain">eonsystemspbc/fly-brain</a> (GPL-2.0-or-later).
+        This app's simulator (Python and JavaScript) is adapted from it, so the app's code is GPL-2.0-or-later.</td></tr>
+    <tr><td><b>NeuroMechFly body</b><small>3D meshes and joints of the fly</small></td>
+      <td>Lobato-Rios et al., <i>Nature Methods</i> 2022; Wang-Chen et al., <i>Nature Methods</i> 2024.
+        <a href="https://github.com/NeLy-EPFL/flygym">flygym</a>, Apache-2.0.</td></tr>
+    <tr><td><b>MNIST</b><small>handwritten digits (1,000 test digits are included here)</small></td>
+      <td>LeCun, Cortes and Burges. <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>.</td></tr>
+    <tr><td><b>HaGRIDv2</b><small>hand-gesture photos of many people: the source of the pre-trained stick-figure gestures</small></td>
+      <td>Kapitanov et al., <a href="https://arxiv.org/abs/2412.01508">arXiv:2412.01508</a>
+        (<a href="https://github.com/hukenovs/hagrid">github.com/hukenovs/hagrid</a>),
+        <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>; for research / non-commercial use per its authors.
+        No photos are included: only stick figures drawn from body landmarks found in them, the fly brain's spike counts for those
+        drawings, and decoders trained on them. These derived data are shared under the same license (CC BY-SA 4.0).</td></tr>
+    <tr><td><b>MediaPipe</b><small>finds your body and hands for the “Stick figure” input; loaded from a CDN</small></td>
+      <td>Google, <a href="https://github.com/google-ai-edge/mediapipe">MediaPipe</a> (Tasks Vision, Pose and Hand Landmarker models), Apache-2.0.</td></tr>
+    <tr><td><b>Three.js</b><small>3D drawing, loaded from a CDN</small></td>
+      <td><a href="https://threejs.org/">three.js</a>, MIT.</td></tr>
+  </table>
+
+  <h2>Also shown in the slides</h2>
+  <table>
+    <tr><td><b>Fly videos</b><small>two YouTube shorts on the “fly videos” slide</small></td>
+      <td>Embedded from YouTube, not copied; they belong to their creators (linked under each video).</td></tr>
+    <tr><td><b>Waving fly animation</b><small>slides/fly-wave.gif, .mp4</small></td>
+      <td>Rendered for this project from the NeuroMechFly model (flygym, Apache-2.0).</td></tr>
+    <tr><td><b>Facts and figures</b><small>energy use, brain maps, fly behaviour</small></td>
+      <td>Sources are named on the slides and in the speaker notes.</td></tr>
+  </table>
+
+  <h2>This app</h2>
+  <p>© 2026 Oleh Kovalyshyn. Code licensed under the
+    <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html">GNU General Public License v2.0 or later</a>
+    (see <code>LICENSE</code> in the source repository). Free software, provided without any warranty.
+    The FlyWire data inside it stays under its own non-commercial license (above), so this app, and copies of it,
+    may only be used non-commercially.</p>
+
+  <h2>Your data</h2>
+  <p>On the published (static) version, your camera never leaves your device: frames, recordings and your trained
+    decoder are kept in this browser only (delete them with “Clear recordings”).</p>
+  <p>With the “Stick figure” input, your camera picture never leaves your device either: MediaPipe finds your body
+    in this browser, and only the stick figure, its spike counts and the body landmarks are kept as recordings
+    (in this browser, or on the teacher's computer when the app runs from it). The MediaPipe library may send anonymous
+    usage statistics to Google; it does not send your pictures.</p>
+</main>
+</body>
+</html>
